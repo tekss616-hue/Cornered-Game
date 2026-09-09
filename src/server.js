@@ -25,6 +25,19 @@ async function requireUser(req){const auth=String(req.headers.authorization||'')
 async function requireAdmin(req){const d=await requireUser(req);if(!isAdminEmail(d.email))throw new Error('admin_forbidden');return d;}
 function statusFor(code){if(code==='auth_required'||code.includes('Firebase ID token')||code.includes('auth/id-token'))return 401;if(code==='admin_forbidden')return 403;if(code==='username_taken')return 409;if(code.includes('not_found'))return 404;return 400;}
 function normalizeUsername(value){return String(value||'').trim().replace(/^@/,'').toLowerCase();}
+function safeInt(value,fallback=0){const n=Number(value);return Number.isFinite(n)?Math.max(0,Math.floor(n)):fallback;}
+function profileShape(identity,data={}){
+  return {
+    uid:identity.uid,
+    playerName:data.playerName||data.name||'',
+    username:data.username||'',
+    email:identity.email||data.email||null,
+    level:safeInt(data.level,0),
+    xp:safeInt(data.xp,0),
+    matches:safeInt(data.matches,0),
+    friendsCount:safeInt(data.friendsCount,0)
+  };
+}
 
 const server=http.createServer(async(req,res)=>{
   if(req.method==='OPTIONS')return send(res,204,{});
@@ -38,6 +51,7 @@ const server=http.createServer(async(req,res)=>{
       if(playerName.length<2||playerName.length>30)throw new Error('invalid_player_name');
       if(!/^[a-z0-9_]{3,18}$/.test(username))throw new Error('invalid_username');
       const db=getFirestore(),userRef=db.collection('users').doc(identity.uid),usernameRef=db.collection('usernames').doc(username);
+      let savedProfile=null;
       await db.runTransaction(async tx=>{
         const [reserved,current]=await Promise.all([tx.get(usernameRef),tx.get(userRef)]);
         if(reserved.exists&&reserved.get('uid')!==identity.uid)throw new Error('username_taken');
@@ -47,17 +61,50 @@ const server=http.createServer(async(req,res)=>{
           if(previousDoc.exists&&previousDoc.get('uid')===identity.uid)tx.delete(previousRef);
         }
         const now=new Date();
+        const currentData=current.exists?(current.data()||{}):{};
+        const progression={
+          level:safeInt(currentData.level,0),
+          xp:safeInt(currentData.xp,0),
+          matches:safeInt(currentData.matches,0),
+          friendsCount:safeInt(currentData.friendsCount,0)
+        };
+        const userData={uid:identity.uid,email:identity.email||null,playerName,name:playerName,username,usernameLower:username,provider:identity.firebase?.sign_in_provider||'unknown',...progression,updatedAt:now,createdAt:current.exists?(current.get('createdAt')||now):now};
         tx.set(usernameRef,{uid:identity.uid,username,updatedAt:now},{merge:true});
-        tx.set(userRef,{uid:identity.uid,email:identity.email||null,playerName,name:playerName,username,usernameLower:username,provider:identity.firebase?.sign_in_provider||'unknown',updatedAt:now,createdAt:current.exists?(current.get('createdAt')||now):now},{merge:true});
+        tx.set(userRef,userData,{merge:true});
+        savedProfile=profileShape(identity,userData);
       });
-      return send(res,200,{ok:true,profile:{uid:identity.uid,playerName,username,email:identity.email||null}});
+      return send(res,200,{ok:true,profile:savedProfile});
     }
 
     if(req.method==='GET'&&req.url==='/api/profile/me'){
       const identity=await requireUser(req),doc=await getFirestore().collection('users').doc(identity.uid).get();
       if(!doc.exists)throw new Error('profile_not_found');
-      const data=doc.data()||{};
-      return send(res,200,{ok:true,profile:{uid:identity.uid,playerName:data.playerName||data.name||'',username:data.username||'',email:identity.email||data.email||null}});
+      return send(res,200,{ok:true,profile:profileShape(identity,doc.data()||{})});
+    }
+
+    if(req.method==='GET'&&req.url==='/api/rankings'){
+      await requireUser(req);
+      const snap=await getFirestore().collection('users').orderBy('xp','desc').limit(50).get();
+      const players=snap.docs.map(d=>{const x=d.data()||{};return {uid:d.id,playerName:x.playerName||x.name||'لاعب',username:x.username||'',level:safeInt(x.level,0),xp:safeInt(x.xp,0),matches:safeInt(x.matches,0)};});
+      return send(res,200,{ok:true,players});
+    }
+
+    if(req.method==='POST'&&req.url==='/api/account/delete'){
+      const identity=await requireUser(req);
+      const db=getFirestore(),userRef=db.collection('users').doc(identity.uid);
+      const userDoc=await userRef.get();
+      const data=userDoc.exists?(userDoc.data()||{}):{};
+      const username=normalizeUsername(data.username);
+      const batch=db.batch();
+      batch.delete(userRef);
+      if(username){
+        const usernameRef=db.collection('usernames').doc(username);
+        const usernameDoc=await usernameRef.get();
+        if(usernameDoc.exists&&usernameDoc.get('uid')===identity.uid)batch.delete(usernameRef);
+      }
+      await batch.commit();
+      await getAuth().deleteUser(identity.uid);
+      return send(res,200,{ok:true,deleted:true});
     }
 
     if(req.method==='POST'&&req.url==='/api/social/friend-push'){
