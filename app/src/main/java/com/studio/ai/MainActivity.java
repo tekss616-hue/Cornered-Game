@@ -2,22 +2,39 @@ package com.studio.ai;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.MediaMetadataRetriever;
+import android.net.Uri;
+import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.View;
-import android.view.WindowInsets;
 import android.widget.*;
-import java.util.*;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 
 public class MainActivity extends Activity {
     private LinearLayout root, content;
     private SharedPreferences prefs;
+    private String activeProjectName = "";
+    private String activeProjectStyle = "";
+    private Runnable backAction;
 
+    private static final int PICK_VIDEO = 2001;
     private final int BG = Color.rgb(9,11,15);
     private final int CARD = Color.rgb(19,23,30);
+    private final int CARD_2 = Color.rgb(25,30,39);
     private final int MUTED = Color.rgb(151,160,174);
     private final int GREEN = Color.rgb(124,255,178);
 
@@ -121,6 +138,9 @@ public class MainActivity extends Activity {
     }
 
     private void showHome() {
+        activeProjectName = "";
+        activeProjectStyle = "";
+        backAction = null;
         base("الاستوديو", "مساحة عملك الخاصة للمونتاج والتعلّم من الأساليب.");
 
         Button add = button("＋  إنشاء مشروع");
@@ -168,6 +188,7 @@ public class MainActivity extends Activity {
     }
 
     private void showName() {
+        backAction = this::showHome;
         base("مشروع جديد", "أعط المشروع اسمًا واضحًا. سنفصل ذاكرته وملفاته عن بقية المشاريع.");
 
         EditText name = new EditText(this);
@@ -194,10 +215,11 @@ public class MainActivity extends Activity {
             }
             showStyles(n);
         });
-        back();
+        addBack("رجوع للرئيسية", this::showHome);
     }
 
     private void showStyles(String name) {
+        backAction = this::showHome;
         base("اختر أسلوب المشروع", "لكل قسم ذاكرته وأرشيفه وشاته ومؤثراته وانتقالاته بشكل مستقل.");
         for (String style : styles) {
             TextView card = text(style, 17, Color.WHITE, true);
@@ -210,7 +232,7 @@ public class MainActivity extends Activity {
             content.addView(card, lp);
             card.setOnClickListener(v -> saveProject(name, style));
         }
-        back();
+        addBack("رجوع للرئيسية", this::showHome);
     }
 
     private void saveProject(String name, String style) {
@@ -221,24 +243,28 @@ public class MainActivity extends Activity {
     }
 
     private void showWorkspace(String name, String style) {
+        activeProjectName = name;
+        activeProjectStyle = style;
+        backAction = this::showHome;
         base(name, style + "  •  مساحة مشروع مستقلة");
 
-        addWorkspaceCard("🎬", "الفيديوهات", "مواد العميل والمراجع");
-        addWorkspaceCard("💬", "شات المشروع", "التواصل مع مساعد هذا القسم");
-        addWorkspaceCard("🧠", "الذاكرة", "ذاكرة قصيرة + طويلة للقسم");
-        addWorkspaceCard("🗂", "الأرشيف", "التحليلات والأساليب المحفوظة");
-        addWorkspaceCard("✨", "المؤثرات والانتقالات", "مكتبة " + style);
-        back();
+        addWorkspaceCard("🎬", "الفيديوهات", "استيراد مواد العميل والمراجع وتشغيلها", true, () -> showVideos(name, style));
+        addWorkspaceCard("💬", "شات المشروع", "سيتم تفعيله في دفعة الشات", false, null);
+        addWorkspaceCard("🧠", "الذاكرة", "سيتم تفعيلها في دفعات الذاكرة", false, null);
+        addWorkspaceCard("🗂", "الأرشيف", "المواد المحفوظة داخل هذا المشروع", true, () -> showArchive(name, style));
+        addWorkspaceCard("✨", "المؤثرات والانتقالات", "سيتم تفعيل المكتبة في دفعتها", false, null);
+        addBack("رجوع للرئيسية", this::showHome);
     }
 
-    private void addWorkspaceCard(String icon, String title, String subtitle) {
+    private void addWorkspaceCard(String icon, String title, String subtitle, boolean enabled, Runnable action) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        card.setBackground(bg(CARD, 18));
+        card.setBackground(bg(enabled ? CARD : Color.rgb(15,18,23), 18));
         card.setPadding(dp(16), dp(13), dp(16), dp(13));
         card.setMinimumHeight(dp(74));
+        card.setAlpha(enabled ? 1f : .60f);
 
         TextView iconView = new TextView(this);
         iconView.setText(icon);
@@ -261,20 +287,239 @@ public class MainActivity extends Activity {
         labels.addView(s, sLp);
         card.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
 
+        if (enabled && action != null) card.setOnClickListener(v -> action.run());
+
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.setMargins(0, 0, 0, dp(10));
         content.addView(card, lp);
     }
 
-    private void back() {
-        TextView b = text("‹  رجوع للرئيسية", 15, GREEN, true);
+    private String videoKey(String name, String style) {
+        return "videos_" + Integer.toHexString((name + "|" + style).hashCode());
+    }
+
+    private JSONArray getVideos(String name, String style) {
+        try {
+            return new JSONArray(prefs.getString(videoKey(name, style), "[]"));
+        } catch (Exception e) {
+            return new JSONArray();
+        }
+    }
+
+    private void saveVideos(String name, String style, JSONArray videos) {
+        prefs.edit().putString(videoKey(name, style), videos.toString()).apply();
+    }
+
+    private void showVideos(String name, String style) {
+        activeProjectName = name;
+        activeProjectStyle = style;
+        backAction = () -> showWorkspace(name, style);
+        base("فيديوهات المشروع", name + "  •  " + style);
+
+        Button add = button("＋  استيراد فيديو من الجوال");
+        add.setOnClickListener(v -> pickVideo());
+        content.addView(add, new LinearLayout.LayoutParams(-1, dp(58)));
+
+        TextView note = text("الاستيراد هنا حقيقي: التطبيق يحتفظ بصلاحية الوصول للفيديو حتى بعد إغلاقه.", 13, MUTED, false);
+        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
+        noteLp.setMargins(0, dp(12), 0, dp(18));
+        content.addView(note, noteLp);
+
+        JSONArray videos = getVideos(name, style);
+        if (videos.length() == 0) {
+            content.addView(text("لا توجد فيديوهات في هذا المشروع حتى الآن.", 14, MUTED, false));
+        } else {
+            for (int i = videos.length() - 1; i >= 0; i--) {
+                JSONObject item = videos.optJSONObject(i);
+                if (item != null) addVideoCard(item, name, style, false);
+            }
+        }
+        addBack("رجوع للمشروع", () -> showWorkspace(name, style));
+    }
+
+    private void showArchive(String name, String style) {
+        activeProjectName = name;
+        activeProjectStyle = style;
+        backAction = () -> showWorkspace(name, style);
+        base("أرشيف المشروع", "المواد التي حفظتها داخل " + name);
+
+        JSONArray videos = getVideos(name, style);
+        if (videos.length() == 0) {
+            content.addView(text("الأرشيف فارغ. أضف فيديو من قسم الفيديوهات أولاً.", 14, MUTED, false));
+        } else {
+            TextView h = text("الفيديوهات المحفوظة  •  " + videos.length(), 17, Color.WHITE, true);
+            LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(-1, -2);
+            hLp.setMargins(0, 0, 0, dp(12));
+            content.addView(h, hLp);
+            for (int i = videos.length() - 1; i >= 0; i--) {
+                JSONObject item = videos.optJSONObject(i);
+                if (item != null) addVideoCard(item, name, style, true);
+            }
+        }
+
+        TextView future = text("ملاحظة: تحليلات الفيديو والأساليب المتعلّمة لن تظهر هنا قبل بناء محرك التحليل في الدفعات القادمة.", 13, MUTED, false);
+        LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(-1, -2);
+        fLp.setMargins(0, dp(14), 0, 0);
+        content.addView(future, fLp);
+        addBack("رجوع للمشروع", () -> showWorkspace(name, style));
+    }
+
+    private void addVideoCard(JSONObject item, String name, String style, boolean archiveMode) {
+        String fileName = item.optString("name", "فيديو");
+        String uri = item.optString("uri", "");
+        long added = item.optLong("added", 0L);
+        String duration = getDuration(Uri.parse(uri));
+        String date = added > 0 ? new SimpleDateFormat("yyyy/MM/dd  HH:mm", Locale.getDefault()).format(new Date(added)) : "";
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        card.setBackground(bg(CARD, 18));
+        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+
+        TextView title = text("🎞  " + fileName, 16, Color.WHITE, true);
+        card.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        String meta = (duration.isEmpty() ? "" : "المدة " + duration) + (date.isEmpty() ? "" : (duration.isEmpty() ? "" : "  •  ") + "أضيف " + date);
+        TextView sub = text(meta.isEmpty() ? "جاهز للتشغيل" : meta, 12.5f, MUTED, false);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
+        subLp.setMargins(0, dp(5), 0, 0);
+        card.addView(sub, subLp);
+
+        TextView status = text(archiveMode ? "محفوظ في أرشيف المشروع" : "اضغط للتشغيل", 12.5f, GREEN, true);
+        LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(-1, -2);
+        stLp.setMargins(0, dp(7), 0, 0);
+        card.addView(status, stLp);
+
+        card.setOnClickListener(v -> showPlayer(fileName, uri, name, style));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(10));
+        content.addView(card, lp);
+    }
+
+    private void pickVideo() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("video/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent, PICK_VIDEO);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != PICK_VIDEO || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+
+        Uri uri = data.getData();
+        try {
+            final int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            getContentResolver().takePersistableUriPermission(uri, flags & Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ignored) {}
+
+        String fileName = getDisplayName(uri);
+        JSONArray videos = getVideos(activeProjectName, activeProjectStyle);
+        boolean exists = false;
+        for (int i = 0; i < videos.length(); i++) {
+            JSONObject old = videos.optJSONObject(i);
+            if (old != null && uri.toString().equals(old.optString("uri"))) {
+                exists = true;
+                break;
+            }
+        }
+
+        if (!exists) {
+            JSONObject obj = new JSONObject();
+            try {
+                obj.put("name", fileName);
+                obj.put("uri", uri.toString());
+                obj.put("added", System.currentTimeMillis());
+                videos.put(obj);
+                saveVideos(activeProjectName, activeProjectStyle, videos);
+                Toast.makeText(this, "تمت إضافة الفيديو للمشروع", Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "تعذر حفظ الفيديو", Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            Toast.makeText(this, "الفيديو موجود بالفعل في المشروع", Toast.LENGTH_SHORT).show();
+        }
+        showVideos(activeProjectName, activeProjectStyle);
+    }
+
+    private String getDisplayName(Uri uri) {
+        String result = "فيديو";
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) result = cursor.getString(index);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return result;
+    }
+
+    private String getDuration(Uri uri) {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(this, uri);
+            String raw = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            if (raw == null) return "";
+            long total = Long.parseLong(raw) / 1000L;
+            long h = total / 3600;
+            long m = (total % 3600) / 60;
+            long s = total % 60;
+            return h > 0 ? String.format(Locale.US, "%d:%02d:%02d", h, m, s) : String.format(Locale.US, "%02d:%02d", m, s);
+        } catch (Exception e) {
+            return "";
+        } finally {
+            try { retriever.release(); } catch (Exception ignored) {}
+        }
+    }
+
+    private void showPlayer(String fileName, String uriString, String name, String style) {
+        activeProjectName = name;
+        activeProjectStyle = style;
+        backAction = () -> showVideos(name, style);
+        base("مشغل الفيديو", fileName);
+
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackground(bg(Color.BLACK, 18));
+        frame.setPadding(dp(4), dp(4), dp(4), dp(4));
+
+        VideoView videoView = new VideoView(this);
+        frame.addView(videoView, new FrameLayout.LayoutParams(-1, dp(230)));
+        content.addView(frame, new LinearLayout.LayoutParams(-1, dp(238)));
+
+        MediaController controller = new MediaController(this);
+        controller.setAnchorView(videoView);
+        videoView.setMediaController(controller);
+        videoView.setVideoURI(Uri.parse(uriString));
+        videoView.setOnPreparedListener(mp -> {
+            mp.setLooping(false);
+            videoView.start();
+        });
+        videoView.setOnErrorListener((mp, what, extra) -> {
+            Toast.makeText(this, "تعذر تشغيل هذا الملف على الجهاز", Toast.LENGTH_LONG).show();
+            return true;
+        });
+
+        TextView info = text("تشغيل فعلي من ملف الفيديو الأصلي على جهازك. التحليل الذكي لم يبدأ بعد؛ سيتم بناؤه في الدفعات القادمة.", 13, MUTED, false);
+        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
+        infoLp.setMargins(0, dp(16), 0, 0);
+        content.addView(info, infoLp);
+        addBack("رجوع للفيديوهات", () -> showVideos(name, style));
+    }
+
+    private void addBack(String label, Runnable action) {
+        TextView b = text("‹  " + label, 15, GREEN, true);
         b.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         b.setPadding(0, dp(22), 0, dp(18));
         root.addView(b, new LinearLayout.LayoutParams(-1, -2));
-        b.setOnClickListener(v -> showHome());
+        b.setOnClickListener(v -> action.run());
     }
 
     @Override public void onBackPressed() {
-        showHome();
+        if (backAction != null) backAction.run(); else showHome();
     }
 }
