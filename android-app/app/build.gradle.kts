@@ -24,8 +24,8 @@ android {
         applicationId = "com.cornered.game"
         minSdk = 24
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.1.5"
+        versionCode = 7
+        versionName = "0.1.6"
 
         buildConfigField("String", "FIREBASE_API_KEY", javaString(firebaseApiKey))
         buildConfigField("String", "FIREBASE_APP_ID", javaString("1:228318611339:android:0dc033187e6921e974518e"))
