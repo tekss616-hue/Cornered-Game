@@ -1,7 +1,7 @@
 plugins { id("com.android.application") }
 android {
  namespace="com.studio.ai"; compileSdk=36
- defaultConfig { applicationId="com.studio.ai"; minSdk=26; targetSdk=35; versionCode=18; versionName="0.16.2" }
+ defaultConfig { applicationId="com.studio.ai"; minSdk=26; targetSdk=35; versionCode=19; versionName="0.17.0" }
  compileOptions { sourceCompatibility=JavaVersion.VERSION_17; targetCompatibility=JavaVersion.VERSION_17 }
  buildTypes { getByName("debug"){isMinifyEnabled=false}; getByName("release"){isMinifyEnabled=false} }
 }
