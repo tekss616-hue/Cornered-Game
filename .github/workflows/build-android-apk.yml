@@ -39,7 +39,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
-          key: cornered-debug-keystore-v2
+          key: cornered-android-debug-keystore-v1
 
       - name: Ensure stable debug signing key exists
         run: |
