@@ -35,10 +35,19 @@ jobs:
         with:
           gradle-version: "9.6.0"
 
+      - name: Restore stable debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: cornered-debug-keystore-v1
+
       - name: Build debug APK
         env:
           CORNERED_FIREBASE_API_KEY: ${{ secrets.CORNERED_FIREBASE_API_KEY }}
         run: gradle -p android-app :app:assembleDebug --stacktrace
+
+      - name: Print APK signing fingerprints
+        run: keytool -printcert -jarfile android-app/app/build/outputs/apk/debug/app-debug.apk | grep -E "SHA1:|SHA256:"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
