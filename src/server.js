@@ -26,18 +26,8 @@ async function requireAdmin(req){const d=await requireUser(req);if(!isAdminEmail
 function statusFor(code){if(code==='auth_required'||code.includes('Firebase ID token')||code.includes('auth/id-token'))return 401;if(code==='admin_forbidden')return 403;if(code==='username_taken')return 409;if(code.includes('not_found'))return 404;return 400;}
 function normalizeUsername(value){return String(value||'').trim().replace(/^@/,'').toLowerCase();}
 function safeInt(value,fallback=0){const n=Number(value);return Number.isFinite(n)?Math.max(0,Math.floor(n)):fallback;}
-function profileShape(identity,data={}){
-  return {
-    uid:identity.uid,
-    playerName:data.playerName||data.name||'',
-    username:data.username||'',
-    email:identity.email||data.email||null,
-    level:safeInt(data.level,0),
-    xp:safeInt(data.xp,0),
-    matches:safeInt(data.matches,0),
-    friendsCount:safeInt(data.friendsCount,0)
-  };
-}
+function progressionOf(data={}){return {level:safeInt(data.level,0),xp:safeInt(data.xp,0),matches:safeInt(data.matches,0),friendsCount:safeInt(data.friendsCount,0)};}
+function profileShape(identity,data={}){return {uid:identity.uid,playerName:data.playerName||data.name||'',username:data.username||'',email:identity.email||data.email||null,...progressionOf(data)};}
 
 const server=http.createServer(async(req,res)=>{
   if(req.method==='OPTIONS')return send(res,204,{});
@@ -60,14 +50,7 @@ const server=http.createServer(async(req,res)=>{
           const previousRef=db.collection('usernames').doc(previous),previousDoc=await tx.get(previousRef);
           if(previousDoc.exists&&previousDoc.get('uid')===identity.uid)tx.delete(previousRef);
         }
-        const now=new Date();
-        const currentData=current.exists?(current.data()||{}):{};
-        const progression={
-          level:safeInt(currentData.level,0),
-          xp:safeInt(currentData.xp,0),
-          matches:safeInt(currentData.matches,0),
-          friendsCount:safeInt(currentData.friendsCount,0)
-        };
+        const now=new Date(),currentData=current.exists?(current.data()||{}):{},progression=progressionOf(currentData);
         const userData={uid:identity.uid,email:identity.email||null,playerName,name:playerName,username,usernameLower:username,provider:identity.firebase?.sign_in_provider||'unknown',...progression,updatedAt:now,createdAt:current.exists?(current.get('createdAt')||now):now};
         tx.set(usernameRef,{uid:identity.uid,username,updatedAt:now},{merge:true});
         tx.set(userRef,userData,{merge:true});
@@ -77,31 +60,27 @@ const server=http.createServer(async(req,res)=>{
     }
 
     if(req.method==='GET'&&req.url==='/api/profile/me'){
-      const identity=await requireUser(req),doc=await getFirestore().collection('users').doc(identity.uid).get();
+      const identity=await requireUser(req),db=getFirestore(),ref=db.collection('users').doc(identity.uid),doc=await ref.get();
       if(!doc.exists)throw new Error('profile_not_found');
-      return send(res,200,{ok:true,profile:profileShape(identity,doc.data()||{})});
+      const data=doc.data()||{},progression=progressionOf(data);
+      if(data.level===undefined||data.xp===undefined||data.matches===undefined||data.friendsCount===undefined){await ref.set(progression,{merge:true});}
+      return send(res,200,{ok:true,profile:profileShape(identity,{...data,...progression})});
     }
 
     if(req.method==='GET'&&req.url==='/api/rankings'){
       await requireUser(req);
-      const snap=await getFirestore().collection('users').orderBy('xp','desc').limit(50).get();
-      const players=snap.docs.map(d=>{const x=d.data()||{};return {uid:d.id,playerName:x.playerName||x.name||'لاعب',username:x.username||'',level:safeInt(x.level,0),xp:safeInt(x.xp,0),matches:safeInt(x.matches,0)};});
+      const snap=await getFirestore().collection('users').limit(200).get();
+      const players=snap.docs.map(d=>{const x=d.data()||{},p=progressionOf(x);return {uid:d.id,playerName:x.playerName||x.name||'لاعب',username:x.username||'',...p};})
+        .sort((a,b)=>b.xp-a.xp||b.level-a.level||b.matches-a.matches||String(a.playerName).localeCompare(String(b.playerName),'ar'))
+        .slice(0,50);
       return send(res,200,{ok:true,players});
     }
 
     if(req.method==='POST'&&req.url==='/api/account/delete'){
       const identity=await requireUser(req);
-      const db=getFirestore(),userRef=db.collection('users').doc(identity.uid);
-      const userDoc=await userRef.get();
-      const data=userDoc.exists?(userDoc.data()||{}):{};
-      const username=normalizeUsername(data.username);
-      const batch=db.batch();
+      const db=getFirestore(),userRef=db.collection('users').doc(identity.uid),userDoc=await userRef.get(),data=userDoc.exists?(userDoc.data()||{}):{},username=normalizeUsername(data.username),batch=db.batch();
       batch.delete(userRef);
-      if(username){
-        const usernameRef=db.collection('usernames').doc(username);
-        const usernameDoc=await usernameRef.get();
-        if(usernameDoc.exists&&usernameDoc.get('uid')===identity.uid)batch.delete(usernameRef);
-      }
+      if(username){const usernameRef=db.collection('usernames').doc(username),usernameDoc=await usernameRef.get();if(usernameDoc.exists&&usernameDoc.get('uid')===identity.uid)batch.delete(usernameRef);}
       await batch.commit();
       await getAuth().deleteUser(identity.uid);
       return send(res,200,{ok:true,deleted:true});
