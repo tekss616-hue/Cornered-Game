@@ -21,10 +21,26 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Clean project
+        run: gradle clean
+      - name: Run Android lint
+        run: gradle lintDebug
       - name: Build debug APK
         run: gradle assembleDebug
-      - name: Upload APK
+      - name: Build release APK
+        run: gradle assembleRelease
+      - name: Verify APK outputs
+        run: |
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          ls -lh app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release-unsigned.apk
+      - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: studio-ai-debug
+          name: studio-ai-v0.10.0-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload unsigned release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-ai-v0.10.0-release-unsigned
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
