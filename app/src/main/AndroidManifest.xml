@@ -6,12 +6,10 @@
         android:allowBackup="true"
         android:label="Studio AI"
         android:theme="@style/Theme.StudioAI">
+        <activity android:name=".TimelineActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".MainActivity" android:screenOrientation="portrait" android:exported="false" />
         <activity
-            android:name=".TimelineActivity"
-            android:screenOrientation="portrait"
-            android:exported="false" />
-        <activity
-            android:name=".MainActivity"
+            android:name=".StudioActivity"
             android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
