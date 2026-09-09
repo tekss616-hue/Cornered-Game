@@ -24,8 +24,8 @@ android {
         applicationId = "com.cornered.game"
         minSdk = 24
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.1.9"
+        versionCode = 11
+        versionName = "0.1.10"
 
         buildConfigField("String", "FIREBASE_API_KEY", javaString(firebaseApiKey))
         buildConfigField("String", "FIREBASE_APP_ID", javaString("1:228318611339:android:0dc033187e6921e974518e"))
@@ -58,4 +58,5 @@ dependencies {
     implementation("androidx.credentials:credentials:1.3.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
 }
