@@ -1,13 +1,13 @@
 package com.cornered.game;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
-import android.os.CancellationSignal;
 import android.text.InputType;
 import android.util.Patterns;
 import android.view.Gravity;
@@ -22,23 +22,12 @@ import android.widget.Space;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
-import androidx.credentials.Credential;
-import androidx.credentials.CredentialManager;
-import androidx.credentials.CredentialManagerCallback;
-import androidx.credentials.CustomCredential;
-import androidx.credentials.GetCredentialRequest;
-import androidx.credentials.GetCredentialResponse;
-import androidx.credentials.exceptions.GetCredentialException;
-
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
 import com.google.android.gms.auth.api.signin.GoogleSignInClient;
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
 import com.google.android.gms.common.api.ApiException;
 import com.google.android.gms.tasks.Task;
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption;
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.AuthCredential;
@@ -47,6 +36,7 @@ import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.auth.GoogleAuthProvider;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -59,12 +49,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final int RC_GOOGLE_LEGACY=3117;
+    private static final int RC_GOOGLE=3117;
     private final int bg=Color.rgb(10,11,14), panel=Color.rgb(21,23,28), field=Color.rgb(29,32,39);
     private final int text=Color.rgb(246,246,248), muted=Color.rgb(154,159,170), accent=Color.rgb(196,255,95);
     private FirebaseAuth auth;
-    private CredentialManager credentialManager;
-    private GoogleSignInClient legacyGoogleClient;
+    private GoogleSignInClient googleClient;
     private final ExecutorService io=Executors.newCachedThreadPool();
     private SharedPreferences prefs;
     private String pendingGoogleName="";
@@ -77,8 +66,7 @@ public class MainActivity extends Activity {
         initializeFirebase();
         if(FirebaseApp.getApps(this).isEmpty()){showLogin();return;}
         auth=FirebaseAuth.getInstance();
-        credentialManager=CredentialManager.create(this);
-        setupLegacyGoogle();
+        setupGoogle();
         FirebaseUser current=auth.getCurrentUser();
         if(current!=null){showHome();refreshProfileInBackground(current);}else showLogin();
     }
@@ -96,12 +84,12 @@ public class MainActivity extends Activity {
         FirebaseApp.initializeApp(this,options);
     }
 
-    private void setupLegacyGoogle(){
+    private void setupGoogle(){
         GoogleSignInOptions options=new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestIdToken(BuildConfig.FIREBASE_WEB_CLIENT_ID)
                 .requestEmail()
                 .build();
-        legacyGoogleClient=GoogleSignIn.getClient(this,options);
+        googleClient=GoogleSignIn.getClient(this,options);
     }
 
     private boolean firebaseReady(){
@@ -130,10 +118,8 @@ public class MainActivity extends Activity {
             auth.signInWithEmailAndPassword(email.getText().toString().trim(),pass.getText().toString())
                     .addOnCompleteListener(this,t->{
                         setBusy(login,false,"تسجيل الدخول");
-                        if(t.isSuccessful()){
-                            showHome();
-                            refreshProfileInBackground(auth.getCurrentUser());
-                        }else toast(authMessage(t.getException()));
+                        if(t.isSuccessful()){showHome();refreshProfileInBackground(auth.getCurrentUser());}
+                        else toast(authMessage(t.getException()));
                     });
         });
         google.setOnClickListener(v->startGoogleSignIn(google));
@@ -165,7 +151,7 @@ public class MainActivity extends Activity {
             setBusy(create,true,"جاري إنشاء الحساب...");
             auth.createUserWithEmailAndPassword(email.getText().toString().trim(),pass.getText().toString()).addOnCompleteListener(this,t->{
                 if(!t.isSuccessful()){setBusy(create,false,"إنشاء الحساب");toast(authMessage(t.getException()));return;}
-                cacheProfile(playerName,username);
+                cacheProfile(playerName,username,0,0,0,0);
                 bootstrapProfile(playerName,username,ok->{setBusy(create,false,"إنشاء الحساب");if(ok)showHome();});
             });
         });
@@ -173,68 +159,45 @@ public class MainActivity extends Activity {
 
     private void startGoogleSignIn(Button button){
         if(!firebaseReady())return;
+        if(googleClient==null)setupGoogle();
         setBusy(button,true,"جاري فتح Google...");
-        GetGoogleIdOption option=new GetGoogleIdOption.Builder()
-                .setFilterByAuthorizedAccounts(false)
-                .setServerClientId(BuildConfig.FIREBASE_WEB_CLIENT_ID)
-                .setAutoSelectEnabled(false)
-                .build();
-        GetCredentialRequest request=new GetCredentialRequest.Builder().addCredentialOption(option).build();
-        credentialManager.getCredentialAsync(this,request,new CancellationSignal(),io,new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>(){
-            @Override public void onResult(GetCredentialResponse result){runOnUiThread(()->{setBusy(button,false,"G   المتابعة باستخدام Google");handleGoogleCredential(result.getCredential());});}
-            @Override public void onError(@NonNull GetCredentialException e){
-                runOnUiThread(()->{
-                    setBusy(button,false,"G   المتابعة باستخدام Google");
-                    String name=e.getClass().getSimpleName();
-                    if(name.contains("NoCredential")) startLegacyGooglePicker();
-                    else toast(googleMessage(e));
-                });
-            }
+        // نستخدم منتقي Google المباشر بدل Credential Manager حتى لا يظهر خطأ NoCredential.
+        googleClient.signOut().addOnCompleteListener(this,t->{
+            setBusy(button,false,"G   المتابعة باستخدام Google");
+            try{startActivityForResult(googleClient.getSignInIntent(),RC_GOOGLE);}
+            catch(Exception e){toast("تعذر فتح قائمة حسابات Google على الجهاز");}
         });
-    }
-
-    private void startLegacyGooglePicker(){
-        if(legacyGoogleClient==null)setupLegacyGoogle();
-        try{startActivityForResult(legacyGoogleClient.getSignInIntent(),RC_GOOGLE_LEGACY);}catch(Exception e){toast("تعذر فتح قائمة حسابات Google على الجهاز");}
     }
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
-        if(requestCode!=RC_GOOGLE_LEGACY)return;
+        if(requestCode!=RC_GOOGLE)return;
         Task<GoogleSignInAccount> task=GoogleSignIn.getSignedInAccountFromIntent(data);
         try{
             GoogleSignInAccount account=task.getResult(ApiException.class);
             if(account==null||account.getIdToken()==null){toast("تعذر قراءة حساب Google");return;}
             pendingGoogleName=account.getDisplayName()==null?"":account.getDisplayName();
-            signInFirebaseWithGoogleToken(account.getIdToken());
-        }catch(ApiException e){toast("تعذر تسجيل الدخول باستخدام Google، حاول مرة أخرى");}
+            AuthCredential credential=GoogleAuthProvider.getCredential(account.getIdToken(),null);
+            auth.signInWithCredential(credential).addOnCompleteListener(this,t->{
+                if(t.isSuccessful())resolveGoogleProfile();
+                else toast(authMessage(t.getException()));
+            });
+        }catch(ApiException e){toast(googleStatusMessage(e.getStatusCode()));}
     }
 
-    private void handleGoogleCredential(Credential credential){
-        if(!(credential instanceof CustomCredential)){toast("تعذر قراءة حساب Google");return;}
-        CustomCredential custom=(CustomCredential)credential;
-        if(!GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(custom.getType())){toast("تعذر قراءة بيانات حساب Google");return;}
-        try{
-            GoogleIdTokenCredential google=GoogleIdTokenCredential.createFrom(custom.getData());
-            pendingGoogleName=google.getDisplayName()==null?"":google.getDisplayName();
-            signInFirebaseWithGoogleToken(google.getIdToken());
-        }catch(Exception e){toast("تعذر إكمال تسجيل الدخول باستخدام Google");}
-    }
-
-    private void signInFirebaseWithGoogleToken(String token){
-        AuthCredential firebaseCredential=GoogleAuthProvider.getCredential(token,null);
-        auth.signInWithCredential(firebaseCredential).addOnCompleteListener(this,t->{if(t.isSuccessful())resolveGoogleProfile();else toast(authMessage(t.getException()));});
+    private String googleStatusMessage(int code){
+        if(code==12501)return "تم إلغاء تسجيل الدخول باستخدام Google";
+        if(code==7)return "تعذر الاتصال بخدمات Google، تحقق من الإنترنت وحاول مرة أخرى";
+        if(code==10)return "إعداد Google لهذا الإصدار غير متطابق مع توقيع التطبيق";
+        return "تعذر تسجيل الدخول باستخدام Google، حاول مرة أخرى";
     }
 
     private void resolveGoogleProfile(){
         FirebaseUser current=auth==null?null:auth.getCurrentUser();
         if(current==null){toast("انتهت جلسة الدخول");showLogin();return;}
         if(hasCachedProfile()){
-            showHome();
-            refreshProfileInBackground(current);
-            return;
+            showHome();refreshProfileInBackground(current);return;
         }
-        if(BuildConfig.SERVER_BASE_URL.trim().isEmpty()){showGoogleProfile();return;}
         current.getIdToken(false).addOnCompleteListener(t->{
             if(!t.isSuccessful()||t.getResult()==null){showGoogleProfile();return;}
             String token=t.getResult().getToken();
@@ -243,8 +206,7 @@ public class MainActivity extends Activity {
                     JSONObject result=getJson("/api/profile/me",token);
                     runOnUiThread(()->{
                         if(result.optBoolean("ok")){
-                            JSONObject p=result.optJSONObject("profile");
-                            if(p!=null)cacheProfile(p.optString("playerName"),p.optString("username"));
+                            cacheProfileObject(result.optJSONObject("profile"));
                             showHome();
                         }else if("profile_not_found".equals(result.optString("error")))showGoogleProfile();
                         else toast(serverMessage(result.optString("error")));
@@ -267,7 +229,7 @@ public class MainActivity extends Activity {
             String name=player.getText().toString().trim(), username=user.getText().toString().trim();
             if(name.length()<2||!validUsername(username)){toast("تأكد من اسم اللاعب واسم المستخدم");return;}
             setBusy(done,true,"جاري الحفظ...");
-            cacheProfile(name,username);
+            cacheProfile(name,username,0,0,0,0);
             bootstrapProfile(name,username,ok->{setBusy(done,false,"إكمال إنشاء الحساب");if(ok)showHome();});
         });
     }
@@ -286,14 +248,13 @@ public class MainActivity extends Activity {
         Space flex2=new Space(this);page.addView(flex2,new LinearLayout.LayoutParams(1,0,1));
         page.addView(mainBottomBar("home"),full(70));
         setContentView(page);
-        play.setOnClickListener(v->toast("البحث عن الجلسة نربطه في دفعة اللعب"));
+        play.setOnClickListener(v->toast("البحث عن الجلسة نربطه مع نظام اللعب"));
     }
 
     private void showProfile(){
         currentSection="profile";
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(bg);scroll.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         LinearLayout root=column();root.setPadding(dp(18),dp(18),dp(18),0);scroll.addView(root,wrap());
-
         LinearLayout header=row();
         TextView back=label("‹",34,text,Typeface.NORMAL);back.setGravity(Gravity.CENTER);header.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
         TextView title=label("الملف الشخصي",20,text,Typeface.BOLD);title.setGravity(Gravity.CENTER);header.addView(title,new LinearLayout.LayoutParams(0,dp(48),1));
@@ -307,10 +268,11 @@ public class MainActivity extends Activity {
         TextView quote=label("\"Better alone.\"",14,muted,Typeface.NORMAL);quote.setGravity(Gravity.CENTER);profileCard.addView(quote,wrap());gap(profileCard,18);
 
         LinearLayout stats=row();stats.setBackground(round(Color.rgb(15,18,21),18));stats.setPadding(dp(8),dp(10),dp(8),dp(10));
-        stats.addView(stat("24","المستوى"),new LinearLayout.LayoutParams(0,dp(58),1));
-        stats.addView(stat("0","الأصدقاء"),new LinearLayout.LayoutParams(0,dp(58),1));
-        stats.addView(stat("0","المباريات"),new LinearLayout.LayoutParams(0,dp(58),1));
-        profileCard.addView(stats,wrap());gap(profileCard,16);
+        stats.addView(stat(String.valueOf(profileLevel()),"المستوى"),new LinearLayout.LayoutParams(0,dp(58),1));
+        stats.addView(stat(String.valueOf(profileFriends()),"الأصدقاء"),new LinearLayout.LayoutParams(0,dp(58),1));
+        stats.addView(stat(String.valueOf(profileMatches()),"المباريات"),new LinearLayout.LayoutParams(0,dp(58),1));
+        profileCard.addView(stats,wrap());gap(profileCard,8);
+        TextView xp=label("XP  "+profileXp(),12,muted,Typeface.BOLD);xp.setGravity(Gravity.CENTER);profileCard.addView(xp,wrap());gap(profileCard,16);
         Button edit=secondary("✎  تعديل الملف");profileCard.addView(edit,full(52));gap(profileCard,16);
 
         LinearLayout tabs=row();
@@ -322,34 +284,121 @@ public class MainActivity extends Activity {
         root.addView(profileCard,wrap());gap(root,18);
         root.addView(socialBottomBar("profile"),full(70));
         setContentView(scroll);
-
         back.setOnClickListener(v->showHome());
-        edit.setOnClickListener(v->toast("تخصيص مظهر الملف نضيفه على هذا التصميم المرجعي"));
+        gear.setOnClickListener(v->showSettings());
+        edit.setOnClickListener(v->toast("تخصيص مظهر الملف هو الخطوة القادمة على هذا التصميم"));
+        refreshProfileInBackground(auth==null?null:auth.getCurrentUser());
+    }
+
+    private void showShop(){
+        currentSection="shop";
+        LinearLayout page=basePage();
+        page.addView(pageHeader("المتجر",this::showHome),wrap());gap(page,18);
+        page.addView(infoBlock("مظاهر الملف","هنا ستظهر المظاهر والعناصر القابلة للشراء. الشراء غير مفعّل قبل ربط اقتصاد اللعبة الحقيقي."),wrap());gap(page,12);
+        page.addView(infoBlock("الحالة","الصفحة نفسها مفعّلة الآن، ولن نعرض أسعارًا أو مشتريات وهمية."),wrap());
+        Space flex=new Space(this);page.addView(flex,new LinearLayout.LayoutParams(1,0,1));
+        page.addView(mainBottomBar("shop"),full(70));setContentView(page);
+    }
+
+    private void showRanking(){
+        currentSection="ranking";
+        LinearLayout page=basePage();
+        page.addView(pageHeader("التصنيف",this::showHome),wrap());gap(page,12);
+        TextView status=label("جاري تحميل التصنيف الحقيقي...",14,muted,Typeface.NORMAL);status.setGravity(Gravity.CENTER);page.addView(status,wrap());gap(page,12);
+        LinearLayout list=column();page.addView(list,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1));
+        page.addView(mainBottomBar("ranking"),full(70));setContentView(page);
+        loadRanking(status,list);
+    }
+
+    private void loadRanking(TextView status,LinearLayout list){
+        FirebaseUser current=auth==null?null:auth.getCurrentUser();
+        if(current==null){status.setText("سجل الدخول لعرض التصنيف");return;}
+        current.getIdToken(false).addOnCompleteListener(t->{
+            if(!t.isSuccessful()||t.getResult()==null){status.setText("تعذر تحميل التصنيف");return;}
+            String token=t.getResult().getToken();
+            io.execute(()->{
+                try{
+                    JSONObject result=getJson("/api/rankings",token);
+                    JSONArray players=result.optJSONArray("players");
+                    runOnUiThread(()->{
+                        list.removeAllViews();
+                        if(!result.optBoolean("ok")||players==null){status.setText("تعذر تحميل التصنيف");return;}
+                        if(players.length()==0){status.setText("لا يوجد لاعبين في التصنيف بعد");return;}
+                        status.setText("أفضل اللاعبين حسب XP");
+                        for(int i=0;i<players.length();i++){
+                            JSONObject p=players.optJSONObject(i);if(p==null)continue;
+                            String row=(i+1)+"   "+p.optString("playerName","لاعب")+"   •   المستوى "+p.optInt("level",0)+"   •   XP "+p.optInt("xp",0);
+                            TextView item=label(row,15,text,Typeface.BOLD);item.setPadding(dp(14),dp(14),dp(14),dp(14));item.setBackground(round(panel,15));list.addView(item,wrap());gap(list,8);
+                        }
+                    });
+                }catch(Exception e){runOnUiThread(()->status.setText("تعذر تحميل التصنيف الآن"));}
+            });
+        });
+    }
+
+    private void showSettings(){
+        currentSection="settings";
+        LinearLayout page=basePage();page.addView(pageHeader("الإعدادات",this::showProfile),wrap());gap(page,22);
+        Button logout=secondary("تسجيل الخروج");page.addView(logout,full(56));gap(page,12);
+        Button delete=secondary("حذف الحساب نهائيًا");delete.setTextColor(Color.rgb(255,105,105));page.addView(delete,full(56));gap(page,12);
+        TextView note=label("حذف الحساب نهائي: يحذف حساب الدخول وبيانات الملف واسم المستخدم المحجوز.",13,muted,Typeface.NORMAL);note.setGravity(Gravity.CENTER);page.addView(note,wrap());
+        setContentView(page);
+        logout.setOnClickListener(v->logoutAccount());
+        delete.setOnClickListener(v->confirmDeleteAccount(delete));
+    }
+
+    private void logoutAccount(){
+        if(auth!=null)auth.signOut();
+        if(googleClient!=null)googleClient.signOut();
+        prefs.edit().clear().apply();
+        showLogin();
+    }
+
+    private void confirmDeleteAccount(Button button){
+        new AlertDialog.Builder(this)
+                .setTitle("حذف الحساب نهائيًا؟")
+                .setMessage("لن تستطيع استرجاع الحساب بعد الحذف. هل أنت متأكد؟")
+                .setNegativeButton("إلغاء",null)
+                .setPositiveButton("حذف نهائي",(d,w)->deleteAccount(button))
+                .show();
+    }
+
+    private void deleteAccount(Button button){
+        FirebaseUser current=auth==null?null:auth.getCurrentUser();
+        if(current==null){showLogin();return;}
+        setBusy(button,true,"جاري الحذف...");
+        current.getIdToken(true).addOnCompleteListener(t->{
+            if(!t.isSuccessful()||t.getResult()==null){setBusy(button,false,"حذف الحساب نهائيًا");toast("تعذر تأكيد الحساب");return;}
+            String token=t.getResult().getToken();
+            io.execute(()->{
+                try{
+                    JSONObject result=postJson("/api/account/delete",token,new JSONObject());
+                    runOnUiThread(()->{
+                        if(result.optBoolean("ok")){
+                            if(auth!=null)auth.signOut();if(googleClient!=null)googleClient.signOut();prefs.edit().clear().apply();toast("تم حذف الحساب نهائيًا");showLogin();
+                        }else{setBusy(button,false,"حذف الحساب نهائيًا");toast(serverMessage(result.optString("error")));}
+                    });
+                }catch(Exception e){runOnUiThread(()->{setBusy(button,false,"حذف الحساب نهائيًا");toast("تعذر حذف الحساب الآن، حاول مرة أخرى");});}
+            });
+        });
+    }
+
+    private LinearLayout pageHeader(String title,Runnable backAction){
+        LinearLayout header=row();TextView back=label("‹",34,text,Typeface.NORMAL);back.setGravity(Gravity.CENTER);header.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        TextView t=label(title,22,text,Typeface.BOLD);t.setGravity(Gravity.CENTER);header.addView(t,new LinearLayout.LayoutParams(0,dp(48),1));Space x=new Space(this);header.addView(x,new LinearLayout.LayoutParams(dp(48),dp(48)));back.setOnClickListener(v->backAction.run());return header;
     }
 
     private void showSocialPlaceholder(String section){
-        currentSection=section;
-        LinearLayout page=basePage();
-        LinearLayout header=row();
-        TextView back=label("‹",34,text,Typeface.NORMAL);back.setGravity(Gravity.CENTER);header.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        String title="friends".equals(section)?"الأصدقاء":"messages".equals(section)?"المحادثات":"طلبات الصداقة";
-        TextView t=label(title,22,text,Typeface.BOLD);t.setGravity(Gravity.CENTER);header.addView(t,new LinearLayout.LayoutParams(0,dp(48),1));
-        Space x=new Space(this);header.addView(x,new LinearLayout.LayoutParams(dp(48),dp(48)));page.addView(header,wrap());
-        Space flex=new Space(this);page.addView(flex,new LinearLayout.LayoutParams(1,0,1));
-        TextView empty=label("لا يوجد شيء هنا حاليًا",17,muted,Typeface.BOLD);empty.setGravity(Gravity.CENTER);page.addView(empty,wrap());gap(page,8);
-        TextView note=label("الواجهة جاهزة، وربط البيانات يأتي مع دفعة النظام الاجتماعي.",13,muted,Typeface.NORMAL);note.setGravity(Gravity.CENTER);page.addView(note,wrap());
-        Space flex2=new Space(this);page.addView(flex2,new LinearLayout.LayoutParams(1,0,1));
-        page.addView(socialBottomBar(section),full(70));
-        setContentView(page);
-        back.setOnClickListener(v->showHome());
+        currentSection=section;LinearLayout page=basePage();page.addView(pageHeader("friends".equals(section)?"الأصدقاء":"messages".equals(section)?"المحادثات":"طلبات الصداقة",this::showHome),wrap());
+        Space flex=new Space(this);page.addView(flex,new LinearLayout.LayoutParams(1,0,1));TextView empty=label("لا يوجد شيء هنا حاليًا",17,muted,Typeface.BOLD);empty.setGravity(Gravity.CENTER);page.addView(empty,wrap());Space flex2=new Space(this);page.addView(flex2,new LinearLayout.LayoutParams(1,0,1));page.addView(socialBottomBar(section),full(70));setContentView(page);
     }
 
     private LinearLayout mainBottomBar(String active){
         LinearLayout bar=row();bar.setPadding(dp(4),dp(4),dp(4),dp(4));bar.setBackground(round(panel,22));
         bar.addView(nav("⌂\nالرئيسية","home".equals(active),this::showHome),new LinearLayout.LayoutParams(0,dp(62),1));
         bar.addView(nav("◉\nالملف","profile".equals(active),this::showProfile),new LinearLayout.LayoutParams(0,dp(62),1));
-        bar.addView(nav("◇\nالمتجر",false,()->toast("المتجر نربطه لاحقًا")),new LinearLayout.LayoutParams(0,dp(62),1));
-        bar.addView(nav("♛\nالتصنيف",false,()->toast("التصنيف نربطه لاحقًا")),new LinearLayout.LayoutParams(0,dp(62),1));
+        bar.addView(nav("◇\nالمتجر","shop".equals(active),this::showShop),new LinearLayout.LayoutParams(0,dp(62),1));
+        bar.addView(nav("♛\nالتصنيف","ranking".equals(active),this::showRanking),new LinearLayout.LayoutParams(0,dp(62),1));
         return bar;
     }
 
@@ -357,150 +406,59 @@ public class MainActivity extends Activity {
         LinearLayout bar=row();bar.setPadding(dp(4),dp(4),dp(4),dp(4));bar.setBackground(round(panel,22));
         bar.addView(nav("♡\nطلبات الصداقة","requests".equals(active),()->showSocialPlaceholder("requests")),new LinearLayout.LayoutParams(0,dp(62),1));
         bar.addView(nav("♙\nالأصدقاء","friends".equals(active),()->showSocialPlaceholder("friends")),new LinearLayout.LayoutParams(0,dp(62),1));
-        bar.addView(nav("▣\nالمحادثات","messages".equals(active),()->showSocialPlaceholder("messages")),new LinearLayout.LayoutParams(0,dp(62),1));
-        return bar;
+        bar.addView(nav("▣\nالمحادثات","messages".equals(active),()->showSocialPlaceholder("messages")),new LinearLayout.LayoutParams(0,dp(62),1));return bar;
     }
 
-    private TextView nav(String value,boolean active,Runnable action){
-        TextView v=label(value,12,active?accent:muted,active?Typeface.BOLD:Typeface.NORMAL);v.setGravity(Gravity.CENTER);v.setBackground(active?round(Color.rgb(27,34,26),16):round(Color.TRANSPARENT,16));v.setOnClickListener(x->action.run());return v;
-    }
-
-    private TextView stat(String number,String caption){
-        TextView v=label(number+"\n"+caption,15,text,Typeface.BOLD);v.setGravity(Gravity.CENTER);v.setLineSpacing(0,1.15f);return v;
-    }
-
-    private TextView tab(String title,boolean active){
-        TextView v=label(title,13,active?accent:muted,active?Typeface.BOLD:Typeface.NORMAL);v.setGravity(Gravity.CENTER);if(active)v.setBackground(round(Color.rgb(25,34,23),14));return v;
-    }
-
-    private LinearLayout infoBlock(String title,String value){
-        LinearLayout box=column();box.setPadding(dp(14),dp(13),dp(14),dp(13));box.setBackground(round(Color.rgb(17,19,23),16));
-        box.addView(label(title,15,text,Typeface.BOLD),wrap());gap(box,7);box.addView(label(value,13,muted,Typeface.NORMAL),wrap());return box;
-    }
-
-    private LinearLayout basePage(){
-        LinearLayout page=column();page.setPadding(dp(20),dp(22),dp(20),dp(14));page.setBackgroundColor(bg);page.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);return page;
-    }
+    private TextView nav(String value,boolean active,Runnable action){TextView v=label(value,12,active?accent:muted,active?Typeface.BOLD:Typeface.NORMAL);v.setGravity(Gravity.CENTER);v.setBackground(active?round(Color.rgb(27,34,26),16):round(Color.TRANSPARENT,16));v.setOnClickListener(x->action.run());return v;}
+    private TextView stat(String number,String caption){TextView v=label(number+"\n"+caption,15,text,Typeface.BOLD);v.setGravity(Gravity.CENTER);v.setLineSpacing(0,1.15f);return v;}
+    private TextView tab(String title,boolean active){TextView v=label(title,13,active?accent:muted,active?Typeface.BOLD:Typeface.NORMAL);v.setGravity(Gravity.CENTER);if(active)v.setBackground(round(Color.rgb(25,34,23),14));return v;}
+    private LinearLayout infoBlock(String title,String value){LinearLayout box=column();box.setPadding(dp(14),dp(13),dp(14),dp(13));box.setBackground(round(Color.rgb(17,19,23),16));box.addView(label(title,15,text,Typeface.BOLD),wrap());gap(box,7);box.addView(label(value,13,muted,Typeface.NORMAL),wrap());return box;}
+    private LinearLayout basePage(){LinearLayout page=column();page.setPadding(dp(20),dp(22),dp(20),dp(14));page.setBackgroundColor(bg);page.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);return page;}
 
     private void refreshProfileInBackground(FirebaseUser current){
         if(current==null||BuildConfig.SERVER_BASE_URL.trim().isEmpty())return;
         current.getIdToken(false).addOnCompleteListener(t->{
-            if(!t.isSuccessful()||t.getResult()==null)return;
-            String token=t.getResult().getToken();
-            io.execute(()->{
-                try{
-                    JSONObject result=getJson("/api/profile/me",token);
-                    if(result.optBoolean("ok")){
-                        JSONObject p=result.optJSONObject("profile");
-                        if(p!=null)cacheProfile(p.optString("playerName"),p.optString("username"));
-                    }
-                }catch(Exception ignored){}
-            });
+            if(!t.isSuccessful()||t.getResult()==null)return;String token=t.getResult().getToken();
+            io.execute(()->{try{JSONObject result=getJson("/api/profile/me",token);if(result.optBoolean("ok"))cacheProfileObject(result.optJSONObject("profile"));}catch(Exception ignored){}});
         });
     }
 
+    private void cacheProfileObject(JSONObject p){if(p==null)return;cacheProfile(p.optString("playerName"),p.optString("username"),p.optInt("level",0),p.optInt("xp",0),p.optInt("matches",0),p.optInt("friendsCount",0));}
     private interface BoolCallback{void done(boolean ok);}
 
     private void bootstrapProfile(String playerName,String username,BoolCallback callback){
         FirebaseUser current=auth==null?null:auth.getCurrentUser();
         if(current==null){toast("انتهت جلسة الدخول");callback.done(false);return;}
-        if(BuildConfig.SERVER_BASE_URL.trim().isEmpty()){toast("تعذر الاتصال بخادم الحسابات");callback.done(false);return;}
         current.getIdToken(false).addOnCompleteListener(t->{
-            if(!t.isSuccessful()||t.getResult()==null){toast("تعذر تأكيد جلسة الحساب");callback.done(false);return;}
-            String token=t.getResult().getToken();
-            io.execute(()->{
-                try{
-                    JSONObject body=new JSONObject();body.put("playerName",playerName);body.put("username",username);
-                    JSONObject result=postJson("/api/profile/bootstrap",token,body);
-                    runOnUiThread(()->{if(result.optBoolean("ok")){cacheProfile(playerName,username);callback.done(true);}else{toast(serverMessage(result.optString("error")));callback.done(false);}});
-                }catch(Exception e){runOnUiThread(()->{toast("تعذر الاتصال بالخادم، تحقق من الإنترنت وحاول مرة أخرى");callback.done(false);});}
-            });
+            if(!t.isSuccessful()||t.getResult()==null){toast("تعذر تأكيد جلسة الحساب");callback.done(false);return;}String token=t.getResult().getToken();
+            io.execute(()->{try{JSONObject body=new JSONObject();body.put("playerName",playerName);body.put("username",username);JSONObject result=postJson("/api/profile/bootstrap",token,body);runOnUiThread(()->{if(result.optBoolean("ok")){cacheProfileObject(result.optJSONObject("profile"));callback.done(true);}else{toast(serverMessage(result.optString("error")));callback.done(false);}});}catch(Exception e){runOnUiThread(()->{toast("تعذر الاتصال بالخادم، تحقق من الإنترنت وحاول مرة أخرى");callback.done(false);});}});
         });
     }
 
-    private void cacheProfile(String playerName,String username){
-        if(playerName==null||username==null)return;
-        if(playerName.trim().isEmpty()||username.trim().isEmpty())return;
-        prefs.edit().putString("playerName",playerName.trim()).putString("username",username.trim().replace("@","")).apply();
+    private void cacheProfile(String playerName,String username,int level,int xp,int matches,int friends){
+        if(playerName==null||username==null)return;if(playerName.trim().isEmpty()||username.trim().isEmpty())return;
+        prefs.edit().putString("playerName",playerName.trim()).putString("username",username.trim().replace("@","")).putInt("level",Math.max(0,level)).putInt("xp",Math.max(0,xp)).putInt("matches",Math.max(0,matches)).putInt("friendsCount",Math.max(0,friends)).apply();
     }
-
     private boolean hasCachedProfile(){return !profileName().isEmpty()&&!profileUsername().isEmpty();}
-    private String profileName(){String s=prefs.getString("playerName","");return s==null?s:s.trim();}
+    private String profileName(){String s=prefs.getString("playerName","");return s==null?"":s.trim();}
     private String profileUsername(){String s=prefs.getString("username","");if(s==null||s.trim().isEmpty())return "player";return s.trim().replace("@","");}
     private String profileInitial(){String n=profileName();if(n.isEmpty())return "C";return String.valueOf(n.charAt(0)).toUpperCase();}
+    private int profileLevel(){return prefs.getInt("level",0);}
+    private int profileXp(){return prefs.getInt("xp",0);}
+    private int profileMatches(){return prefs.getInt("matches",0);}
+    private int profileFriends(){return prefs.getInt("friendsCount",0);}
 
-    private JSONObject postJson(String path,String token,JSONObject body)throws Exception{
-        URL url=new URL(BuildConfig.SERVER_BASE_URL.replaceAll("/$","")+path);
-        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setRequestMethod("POST");c.setConnectTimeout(4500);c.setReadTimeout(6500);c.setDoOutput(true);
-        c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Authorization","Bearer "+token);c.setRequestProperty("Connection","keep-alive");
-        try(OutputStream out=c.getOutputStream()){out.write(body.toString().getBytes(StandardCharsets.UTF_8));}
-        return readJsonResponse(c);
-    }
-
-    private JSONObject getJson(String path,String token)throws Exception{
-        URL url=new URL(BuildConfig.SERVER_BASE_URL.replaceAll("/$","")+path);
-        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setRequestMethod("GET");c.setConnectTimeout(4500);c.setReadTimeout(6500);
-        c.setRequestProperty("Authorization","Bearer "+token);c.setRequestProperty("Connection","keep-alive");
-        return readJsonResponse(c);
-    }
-
-    private JSONObject readJsonResponse(HttpURLConnection c)throws Exception{
-        int code=c.getResponseCode();
-        java.io.InputStream stream=code>=400?c.getErrorStream():c.getInputStream();
-        if(stream==null){c.disconnect();return new JSONObject().put("error","network_error");}
-        BufferedReader br=new BufferedReader(new InputStreamReader(stream,StandardCharsets.UTF_8));
-        StringBuilder sb=new StringBuilder();String line;while((line=br.readLine())!=null)sb.append(line);br.close();c.disconnect();
-        return new JSONObject(sb.length()==0?"{}":sb.toString());
-    }
+    private JSONObject postJson(String path,String token,JSONObject body)throws Exception{URL url=new URL(BuildConfig.SERVER_BASE_URL.replaceAll("/$","")+path);HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setRequestMethod("POST");c.setConnectTimeout(4500);c.setReadTimeout(6500);c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Authorization","Bearer "+token);c.setRequestProperty("Connection","keep-alive");try(OutputStream out=c.getOutputStream()){out.write(body.toString().getBytes(StandardCharsets.UTF_8));}return readJsonResponse(c);}
+    private JSONObject getJson(String path,String token)throws Exception{URL url=new URL(BuildConfig.SERVER_BASE_URL.replaceAll("/$","")+path);HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setRequestMethod("GET");c.setConnectTimeout(4500);c.setReadTimeout(6500);c.setRequestProperty("Authorization","Bearer "+token);c.setRequestProperty("Connection","keep-alive");return readJsonResponse(c);}
+    private JSONObject readJsonResponse(HttpURLConnection c)throws Exception{int code=c.getResponseCode();java.io.InputStream stream=code>=400?c.getErrorStream():c.getInputStream();if(stream==null){c.disconnect();return new JSONObject().put("error","network_error");}BufferedReader br=new BufferedReader(new InputStreamReader(stream,StandardCharsets.UTF_8));StringBuilder sb=new StringBuilder();String line;while((line=br.readLine())!=null)sb.append(line);br.close();c.disconnect();return new JSONObject(sb.length()==0?"{}":sb.toString());}
 
     private String authMessage(Exception e){
-        if(e==null)return "حدث خطأ في تسجيل الدخول، حاول مرة أخرى";
-        Throwable current=e;
-        while(current!=null){
-            if(current instanceof FirebaseAuthException){
-                String code=((FirebaseAuthException)current).getErrorCode();
-                if("ERROR_EMAIL_ALREADY_IN_USE".equals(code)||"ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL".equals(code)||"ERROR_CREDENTIAL_ALREADY_IN_USE".equals(code))return "هذا البريد الإلكتروني مرتبط بحساب موجود مسبقًا. سجل الدخول بدل إنشاء حساب جديد.";
-                if("ERROR_INVALID_EMAIL".equals(code))return "البريد الإلكتروني غير صحيح";
-                if("ERROR_WEAK_PASSWORD".equals(code))return "كلمة المرور ضعيفة، استخدم كلمة مرور أقوى";
-                if("ERROR_WRONG_PASSWORD".equals(code)||"ERROR_USER_NOT_FOUND".equals(code)||"ERROR_INVALID_CREDENTIAL".equals(code))return "البريد الإلكتروني أو كلمة المرور غير صحيحة";
-                if("ERROR_USER_DISABLED".equals(code))return "هذا الحساب موقوف حاليًا";
-                if("ERROR_TOO_MANY_REQUESTS".equals(code))return "محاولات كثيرة، انتظر قليلًا ثم حاول مرة أخرى";
-                if("ERROR_NETWORK_REQUEST_FAILED".equals(code))return "تعذر الاتصال بالإنترنت، تحقق من الشبكة وحاول مرة أخرى";
-                return "تعذر إكمال العملية، حاول مرة أخرى";
-            }
-            current=current.getCause();
-        }
-        return "تعذر إكمال العملية، حاول مرة أخرى";
+        if(e==null)return "حدث خطأ في تسجيل الدخول، حاول مرة أخرى";Throwable current=e;
+        while(current!=null){if(current instanceof FirebaseAuthException){String code=((FirebaseAuthException)current).getErrorCode();if("ERROR_EMAIL_ALREADY_IN_USE".equals(code)||"ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL".equals(code)||"ERROR_CREDENTIAL_ALREADY_IN_USE".equals(code))return "هذا البريد الإلكتروني مرتبط بحساب موجود مسبقًا. سجل الدخول بدل إنشاء حساب جديد.";if("ERROR_INVALID_EMAIL".equals(code))return "البريد الإلكتروني غير صحيح";if("ERROR_WEAK_PASSWORD".equals(code))return "كلمة المرور ضعيفة، استخدم كلمة مرور أقوى";if("ERROR_WRONG_PASSWORD".equals(code)||"ERROR_USER_NOT_FOUND".equals(code)||"ERROR_INVALID_CREDENTIAL".equals(code))return "البريد الإلكتروني أو كلمة المرور غير صحيحة";if("ERROR_USER_DISABLED".equals(code))return "هذا الحساب موقوف حاليًا";if("ERROR_TOO_MANY_REQUESTS".equals(code))return "محاولات كثيرة، انتظر قليلًا ثم حاول مرة أخرى";if("ERROR_NETWORK_REQUEST_FAILED".equals(code))return "تعذر الاتصال بالإنترنت، تحقق من الشبكة وحاول مرة أخرى";return "تعذر إكمال العملية، حاول مرة أخرى";}current=current.getCause();}return "تعذر إكمال العملية، حاول مرة أخرى";
     }
+    private String serverMessage(String code){if("username_taken".equals(code))return "اسم المستخدم مستخدم، اختر اسمًا آخر";if("invalid_username".equals(code))return "اسم المستخدم غير صالح";if("invalid_player_name".equals(code))return "اسم اللاعب غير صالح";if("profile_not_found".equals(code))return "لم يتم العثور على بيانات الحساب";if("auth_required".equals(code))return "انتهت جلسة الدخول، سجل الدخول مرة أخرى";if("network_error".equals(code))return "تعذر الاتصال بالخادم، حاول مرة أخرى";return "تعذر إكمال العملية، حاول مرة أخرى";}
 
-    private String googleMessage(Throwable e){
-        String name=e==null?"":e.getClass().getSimpleName();
-        if(name.contains("NoCredential"))return "لم نجد حسابًا عبر الطريقة السريعة، افتح قائمة Google واختر حسابك";
-        if(name.contains("Cancellation"))return "تم إلغاء تسجيل الدخول باستخدام Google";
-        return "تعذر تسجيل الدخول باستخدام Google، حاول مرة أخرى";
-    }
-
-    private String serverMessage(String code){
-        if("username_taken".equals(code))return "اسم المستخدم مستخدم، اختر اسمًا آخر";
-        if("invalid_username".equals(code))return "اسم المستخدم غير صالح";
-        if("invalid_player_name".equals(code))return "اسم اللاعب غير صالح";
-        if("profile_not_found".equals(code))return "لم يتم العثور على بيانات الحساب";
-        if("auth_required".equals(code))return "انتهت جلسة الدخول، سجل الدخول مرة أخرى";
-        if("network_error".equals(code))return "تعذر الاتصال بالخادم، حاول مرة أخرى";
-        return "تعذر إكمال العملية، حاول مرة أخرى";
-    }
-
-    private LinearLayout authScreen(String title,String subtitle){
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(bg);scroll.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        LinearLayout root=column();root.setPadding(dp(24),dp(42),dp(24),dp(32));root.setGravity(Gravity.CENTER_HORIZONTAL);scroll.addView(root,wrap());
-        TextView mark=label("C",27,Color.BLACK,Typeface.BOLD);mark.setGravity(Gravity.CENTER);mark.setBackground(round(accent,20));root.addView(mark,new LinearLayout.LayoutParams(dp(60),dp(60)));gap(root,20);
-        TextView t=label(title,29,text,Typeface.BOLD);t.setGravity(Gravity.CENTER);root.addView(t,wrap());gap(root,8);
-        TextView s=label(subtitle,15,muted,Typeface.NORMAL);s.setGravity(Gravity.CENTER);root.addView(s,wrap());gap(root,30);
-        LinearLayout card=column();card.setPadding(dp(18),dp(22),dp(18),dp(22));card.setBackground(round(panel,24));root.addView(card,wrap());
-        gap(root,22);TextView footer=label("Cornered  •  0.1.10",12,Color.rgb(88,92,101),Typeface.NORMAL);footer.setGravity(Gravity.CENTER);root.addView(footer,wrap());
-        setContentView(scroll);return card;
-    }
-
+    private LinearLayout authScreen(String title,String subtitle){ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(bg);scroll.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);LinearLayout root=column();root.setPadding(dp(24),dp(42),dp(24),dp(32));root.setGravity(Gravity.CENTER_HORIZONTAL);scroll.addView(root,wrap());TextView mark=label("C",27,Color.BLACK,Typeface.BOLD);mark.setGravity(Gravity.CENTER);mark.setBackground(round(accent,20));root.addView(mark,new LinearLayout.LayoutParams(dp(60),dp(60)));gap(root,20);TextView t=label(title,29,text,Typeface.BOLD);t.setGravity(Gravity.CENTER);root.addView(t,wrap());gap(root,8);TextView s=label(subtitle,15,muted,Typeface.NORMAL);s.setGravity(Gravity.CENTER);root.addView(s,wrap());gap(root,30);LinearLayout card=column();card.setPadding(dp(18),dp(22),dp(18),dp(22));card.setBackground(round(panel,24));root.addView(card,wrap());gap(root,22);TextView footer=label("Cornered  •  0.1.11",12,Color.rgb(88,92,101),Typeface.NORMAL);footer.setGravity(Gravity.CENTER);root.addView(footer,wrap());setContentView(scroll);return card;}
     private void setBusy(Button b,boolean busy,String value){b.setEnabled(!busy);b.setAlpha(busy?.65f:1f);b.setText(value);}
     private EditText input(String hint,int type){EditText e=new EditText(this);e.setHint(hint);e.setHintTextColor(Color.rgb(112,117,128));e.setTextColor(text);e.setTextSize(16);e.setSingleLine(true);e.setInputType(type);e.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);e.setPadding(dp(16),0,dp(16),0);e.setBackground(round(field,15));return e;}
     private Button primary(String s){Button b=button(s);b.setTextColor(Color.BLACK);b.setBackground(round(accent,16));return b;}
@@ -521,7 +479,8 @@ public class MainActivity extends Activity {
     private int dp(int n){return(int)(n*getResources().getDisplayMetrics().density+.5f);}
 
     @Override public void onBackPressed(){
-        if("profile".equals(currentSection)||"requests".equals(currentSection)||"friends".equals(currentSection)||"messages".equals(currentSection)){showHome();return;}
+        if("profile".equals(currentSection)||"shop".equals(currentSection)||"ranking".equals(currentSection)||"requests".equals(currentSection)||"friends".equals(currentSection)||"messages".equals(currentSection)){showHome();return;}
+        if("settings".equals(currentSection)){showProfile();return;}
         if("home".equals(currentSection)){moveTaskToBack(true);return;}
         if(auth!=null&&auth.getCurrentUser()!=null){showHome();return;}
         if(!"login".equals(currentSection)){showLogin();return;}
