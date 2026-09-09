@@ -39,21 +39,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
-          key: cornered-android-debug-keystore-v1
+          key: cornered-debug-keystore-v2
 
       - name: Ensure stable debug signing key exists
         run: |
           mkdir -p "$HOME/.android"
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000
+            echo "Stable signing key cache is missing; refusing to generate a new key."
+            exit 1
           fi
 
       - name: Build debug APK
