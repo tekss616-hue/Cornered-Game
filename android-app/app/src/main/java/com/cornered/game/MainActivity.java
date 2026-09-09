@@ -1,13 +1,12 @@
 package com.cornered.game;
 
 import android.app.Activity;
-import android.content.Context;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.InputType;
+import android.util.Patterns;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -21,299 +20,84 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
+    private final int bg=Color.rgb(10,11,14), panel=Color.rgb(21,23,28), field=Color.rgb(29,32,39);
+    private final int text=Color.rgb(246,246,248), muted=Color.rgb(154,159,170), accent=Color.rgb(196,255,95);
 
-    private static final String PREFS = "cornered_prefs";
-    private static final String KEY_NICKNAME = "nickname";
+    @Override public void onCreate(Bundle b){super.onCreate(b); Window w=getWindow(); w.setStatusBarColor(bg);w.setNavigationBarColor(bg);showLogin();}
 
-    private final int bg = Color.rgb(12, 13, 16);
-    private final int panel = Color.rgb(22, 24, 29);
-    private final int panelSoft = Color.rgb(29, 32, 38);
-    private final int text = Color.rgb(244, 244, 246);
-    private final int muted = Color.rgb(159, 163, 174);
-    private final int accent = Color.rgb(196, 255, 95);
-    private final int danger = Color.rgb(255, 120, 120);
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        Window window = getWindow();
-        window.setStatusBarColor(bg);
-        window.setNavigationBarColor(bg);
-        getWindow().getDecorView().setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String nickname = prefs.getString(KEY_NICKNAME, "");
-        if (nickname != null && !nickname.trim().isEmpty()) {
-            showHome(nickname.trim());
-        } else {
-            showLogin();
-        }
+    private void showLogin(){
+        LinearLayout card=screen("مرحبًا بعودتك","ادخل حسابك وارجع للقصة.");
+        EditText email=input("البريد الإلكتروني",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        EditText pass=input("كلمة المرور",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        card.addView(email,full(56)); gap(card,12); card.addView(pass,full(56)); gap(card,16);
+        Button login=primary("تسجيل الدخول");card.addView(login,full(56)); gap(card,14);
+        TextView forgot=label("نسيت كلمة المرور؟",14,accent,Typeface.BOLD);forgot.setGravity(Gravity.CENTER);card.addView(forgot,wrap());
+        divider(card,"أو");
+        Button google=secondary("G   المتابعة باستخدام Google");card.addView(google,full(56));gap(card,22);
+        TextView create=label("ما عندك حساب؟  إنشاء حساب",15,text,Typeface.BOLD);create.setGravity(Gravity.CENTER);card.addView(create,wrap());
+        create.setOnClickListener(v->showRegister());
+        login.setOnClickListener(v->{if(!validEmail(email)||pass.getText().length()<6)toast("تأكد من البريد وكلمة المرور");else toast("واجهة الدخول جاهزة — الربط بالحسابات في خطوة الخادم");});
+        google.setOnClickListener(v->showGoogleProfile());
+        forgot.setOnClickListener(v->toast("استعادة كلمة المرور سنربطها مع نظام الحسابات"));
     }
 
-    private void showLogin() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(bg);
-
-        LinearLayout root = column();
-        root.setPadding(dp(24), dp(52), dp(24), dp(32));
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        scroll.addView(root, matchWrap());
-
-        TextView mark = text("C", 28, Color.BLACK, Typeface.BOLD);
-        mark.setGravity(Gravity.CENTER);
-        mark.setBackground(round(accent, 22));
-        root.addView(mark, size(dp(64), dp(64)));
-
-        root.addView(space(22));
-
-        TextView title = text("ادخل القصة", 30, text, Typeface.BOLD);
-        title.setGravity(Gravity.CENTER);
-        root.addView(title, matchWrap());
-
-        root.addView(space(10));
-
-        TextView subtitle = text("كل جلسة شخصية مختلفة، وكل كلمة منك تغيّر النهاية.", 16, muted, Typeface.NORMAL);
-        subtitle.setGravity(Gravity.CENTER);
-        subtitle.setLineSpacing(0, 1.15f);
-        root.addView(subtitle, matchWrap());
-
-        root.addView(space(36));
-
-        LinearLayout card = column();
-        card.setPadding(dp(18), dp(20), dp(18), dp(18));
-        card.setBackground(round(panel, 24));
-        root.addView(card, matchWrap());
-
-        TextView label = text("اختر لقبك داخل الجلسات", 14, muted, Typeface.BOLD);
-        card.addView(label, matchWrap());
-        card.addView(space(10));
-
-        EditText nickname = new EditText(this);
-        nickname.setTextColor(text);
-        nickname.setHintTextColor(Color.rgb(105, 109, 119));
-        nickname.setHint("مثال: الغراب");
-        nickname.setTextSize(17);
-        nickname.setSingleLine(true);
-        nickname.setGravity(Gravity.CENTER_VERTICAL | Gravity.RIGHT);
-        nickname.setPadding(dp(16), 0, dp(16), 0);
-        nickname.setInputType(InputType.TYPE_CLASS_TEXT);
-        nickname.setBackground(round(panelSoft, 16));
-        card.addView(nickname, size(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
-
-        card.addView(space(14));
-
-        Button enter = new Button(this);
-        enter.setText("دخول");
-        enter.setTextSize(17);
-        enter.setTextColor(Color.BLACK);
-        enter.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        enter.setAllCaps(false);
-        enter.setBackground(round(accent, 16));
-        card.addView(enter, size(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
-
-        card.addView(space(12));
-        TextView note = text("سيظهر هذا اللقب للاعبين بدل اسمك الحقيقي.", 13, muted, Typeface.NORMAL);
-        note.setGravity(Gravity.CENTER);
-        card.addView(note, matchWrap());
-
-        root.addView(space(24));
-        TextView footer = text("نسخة تجريبية 0.1", 12, Color.rgb(90, 94, 103), Typeface.NORMAL);
-        footer.setGravity(Gravity.CENTER);
-        root.addView(footer, matchWrap());
-
-        enter.setOnClickListener(v -> {
-            String value = nickname.getText().toString().trim();
-            if (value.length() < 2) {
-                Toast.makeText(this, "اكتب لقبًا من حرفين على الأقل", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            if (value.length() > 18) {
-                Toast.makeText(this, "خل اللقب أقصر من 18 حرفًا", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_NICKNAME, value).apply();
-            showHome(value);
+    private void showRegister(){
+        LinearLayout card=screen("أنشئ حسابك","أربع خانات فقط، وبعدها تكون جاهز.");
+        EditText player=input("اسم اللاعب",InputType.TYPE_CLASS_TEXT);
+        EditText user=input("اسم المستخدم  @username",InputType.TYPE_CLASS_TEXT);
+        EditText email=input("البريد الإلكتروني",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        EditText pass=input("كلمة المرور",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        addFields(card,player,user,email,pass); gap(card,16);
+        Button create=primary("إنشاء الحساب");card.addView(create,full(56));gap(card,22);
+        TextView login=label("عندك حساب؟  تسجيل الدخول",15,text,Typeface.BOLD);login.setGravity(Gravity.CENTER);card.addView(login,wrap());
+        login.setOnClickListener(v->showLogin());
+        create.setOnClickListener(v->{
+            if(player.getText().toString().trim().length()<2){toast("اكتب اسم اللاعب");return;}
+            if(!validUsername(user.getText().toString())){toast("اسم المستخدم: 3–18 حرفًا أو رقمًا أو _");return;}
+            if(!validEmail(email)){toast("اكتب بريدًا إلكترونيًا صحيحًا");return;}
+            if(pass.getText().length()<8){toast("كلمة المرور لازم تكون 8 أحرف على الأقل");return;}
+            toast("واجهة إنشاء الحساب جاهزة — التحقق الفعلي سنربطه بالخادم");
         });
-
-        setContentView(scroll);
     }
 
-    private void showHome(String nickname) {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(bg);
-
-        LinearLayout root = column();
-        root.setPadding(dp(22), dp(42), dp(22), dp(30));
-        scroll.addView(root, matchWrap());
-
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(top, matchWrap());
-
-        TextView avatar = text(firstLetter(nickname), 18, Color.BLACK, Typeface.BOLD);
-        avatar.setGravity(Gravity.CENTER);
-        avatar.setBackground(round(accent, 16));
-        top.addView(avatar, size(dp(48), dp(48)));
-
-        LinearLayout nameBlock = column();
-        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        nameParams.setMarginStart(dp(12));
-        top.addView(nameBlock, nameParams);
-
-        TextView welcome = text("هلا، " + nickname, 20, text, Typeface.BOLD);
-        nameBlock.addView(welcome, matchWrap());
-        TextView status = text("جاهز لقصة جديدة؟", 13, muted, Typeface.NORMAL);
-        nameBlock.addView(status, matchWrap());
-
-        TextView logout = text("تغيير اللقب", 13, muted, Typeface.BOLD);
-        logout.setGravity(Gravity.CENTER);
-        logout.setPadding(dp(12), dp(10), dp(12), dp(10));
-        logout.setBackground(round(panel, 14));
-        top.addView(logout, wrapWrap());
-        logout.setOnClickListener(v -> {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_NICKNAME).apply();
-            showLogin();
-        });
-
-        root.addView(space(34));
-
-        LinearLayout hero = column();
-        hero.setPadding(dp(22), dp(24), dp(22), dp(24));
-        hero.setBackground(round(panel, 28));
-        root.addView(hero, matchWrap());
-
-        TextView live = text("●  جلسة عشوائية", 13, accent, Typeface.BOLD);
-        hero.addView(live, matchWrap());
-        hero.addView(space(12));
-
-        TextView heroTitle = text("7 لاعبين.\nشخصية واحدة.\n15 دقيقة تغيّر القصة.", 29, text, Typeface.BOLD);
-        heroTitle.setLineSpacing(dp(2), 1.05f);
-        hero.addView(heroTitle, matchWrap());
-
-        hero.addView(space(14));
-        TextView heroText = text("لن تعرف من ستقابل. افهم الشخصية، أثّر عليها، واكتشف النهاية التي صنعتموها معًا.", 15, muted, Typeface.NORMAL);
-        heroText.setLineSpacing(dp(2), 1.15f);
-        hero.addView(heroText, matchWrap());
-
-        hero.addView(space(24));
-
-        Button search = new Button(this);
-        search.setText("ابحث عن جلسة");
-        search.setTextSize(17);
-        search.setTextColor(Color.BLACK);
-        search.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        search.setAllCaps(false);
-        search.setBackground(round(accent, 18));
-        hero.addView(search, size(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
-
-        search.setOnClickListener(v -> Toast.makeText(this, "البحث عن الجلسات نربطه في الخطوة القادمة", Toast.LENGTH_SHORT).show());
-
-        root.addView(space(28));
-        TextView section = text("كيف تبدأ؟", 17, text, Typeface.BOLD);
-        root.addView(section, matchWrap());
-        root.addView(space(12));
-
-        LinearLayout steps = column();
-        steps.setPadding(dp(18), dp(6), dp(18), dp(6));
-        steps.setBackground(round(panel, 22));
-        root.addView(steps, matchWrap());
-
-        addStep(steps, "1", "ادخل البحث", "ننتظر حتى يكتمل 7 لاعبين.");
-        addDivider(steps);
-        addStep(steps, "2", "اكتشف الشخصية", "الخلفية تظهر داخل الشات، والباقي تكتشفه بنفسك.");
-        addDivider(steps);
-        addStep(steps, "3", "اصنع النهاية", "بعد 15 دقيقة تظهر النهاية، سببها، وأكثر لاعب أثّر في الشخصية.");
-
-        root.addView(space(22));
-        TextView noHistory = text("سجل جلساتك سيظهر هنا بعد أول قصة.", 13, Color.rgb(104, 108, 117), Typeface.NORMAL);
-        noHistory.setGravity(Gravity.CENTER);
-        root.addView(noHistory, matchWrap());
-
-        setContentView(scroll);
+    private void showGoogleProfile(){
+        LinearLayout card=screen("أكمل حساب Google","بعد اختيار حساب Google نحتاج منك شيئين فقط.");
+        TextView note=label("Google يزوّدنا بالبريد والهوية بأمان. أنت تختار الاسم الذي يراه اللاعبون واسم المستخدم الفريد.",14,muted,Typeface.NORMAL);note.setLineSpacing(0,1.2f);card.addView(note,wrap());gap(card,18);
+        EditText player=input("اسم اللاعب",InputType.TYPE_CLASS_TEXT);
+        EditText user=input("اسم المستخدم  @username",InputType.TYPE_CLASS_TEXT);
+        addFields(card,player,user);gap(card,16);
+        Button done=primary("إكمال إنشاء الحساب");card.addView(done,full(56));gap(card,16);
+        TextView back=label("رجوع لتسجيل الدخول",14,muted,Typeface.BOLD);back.setGravity(Gravity.CENTER);card.addView(back,wrap());
+        back.setOnClickListener(v->showLogin());
+        done.setOnClickListener(v->{if(player.getText().toString().trim().length()<2||!validUsername(user.getText().toString()))toast("تأكد من اسم اللاعب واسم المستخدم");else toast("واجهة Google جاهزة — اختيار حساب Google الحقيقي يحتاج إعداد OAuth");});
     }
 
-    private void addStep(LinearLayout parent, String number, String titleValue, String bodyValue) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(14), 0, dp(14));
-        parent.addView(row, matchWrap());
-
-        TextView badge = text(number, 14, Color.BLACK, Typeface.BOLD);
-        badge.setGravity(Gravity.CENTER);
-        badge.setBackground(round(accent, 13));
-        row.addView(badge, size(dp(36), dp(36)));
-
-        LinearLayout copy = column();
-        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        copyParams.setMarginStart(dp(12));
-        row.addView(copy, copyParams);
-
-        TextView title = text(titleValue, 15, text, Typeface.BOLD);
-        copy.addView(title, matchWrap());
-        TextView body = text(bodyValue, 13, muted, Typeface.NORMAL);
-        body.setLineSpacing(dp(1), 1.1f);
-        copy.addView(body, matchWrap());
+    private LinearLayout screen(String title,String subtitle){
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(bg);scroll.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        LinearLayout root=column();root.setPadding(dp(24),dp(42),dp(24),dp(32));root.setGravity(Gravity.CENTER_HORIZONTAL);scroll.addView(root,wrap());
+        TextView mark=label("C",27,Color.BLACK,Typeface.BOLD);mark.setGravity(Gravity.CENTER);mark.setBackground(round(accent,20));root.addView(mark,new LinearLayout.LayoutParams(dp(60),dp(60)));gap(root,20);
+        TextView t=label(title,29,text,Typeface.BOLD);t.setGravity(Gravity.CENTER);root.addView(t,wrap());gap(root,8);
+        TextView s=label(subtitle,15,muted,Typeface.NORMAL);s.setGravity(Gravity.CENTER);root.addView(s,wrap());gap(root,30);
+        LinearLayout card=column();card.setPadding(dp(18),dp(22),dp(18),dp(22));card.setBackground(round(panel,24));root.addView(card,wrap());
+        gap(root,22);TextView footer=label("Cornered  •  الدفعة 1 من 20",12,Color.rgb(88,92,101),Typeface.NORMAL);footer.setGravity(Gravity.CENTER);root.addView(footer,wrap());
+        setContentView(scroll);return card;
     }
 
-    private void addDivider(LinearLayout parent) {
-        View divider = new View(this);
-        divider.setBackgroundColor(Color.rgb(42, 45, 52));
-        parent.addView(divider, size(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
-    }
-
-    private LinearLayout column() {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        return layout;
-    }
-
-    private TextView text(String value, int sp, int color, int style) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextSize(sp);
-        view.setTextColor(color);
-        view.setTypeface(Typeface.DEFAULT, style);
-        view.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        view.setTextDirection(View.TEXT_DIRECTION_RTL);
-        return view;
-    }
-
-    private GradientDrawable round(int color, int radiusDp) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(color);
-        drawable.setCornerRadius(dp(radiusDp));
-        return drawable;
-    }
-
-    private Space space(int heightDp) {
-        Space space = new Space(this);
-        space.setLayoutParams(size(1, dp(heightDp)));
-        return space;
-    }
-
-    private String firstLetter(String value) {
-        if (value == null || value.trim().isEmpty()) return "؟";
-        return value.trim().substring(0, 1);
-    }
-
-    private int dp(int value) {
-        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
-    }
-
-    private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams wrapWrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams size(int width, int height) {
-        return new LinearLayout.LayoutParams(width, height);
-    }
+    private EditText input(String hint,int type){EditText e=new EditText(this);e.setHint(hint);e.setHintTextColor(Color.rgb(112,117,128));e.setTextColor(text);e.setTextSize(16);e.setSingleLine(true);e.setInputType(type);e.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);e.setPadding(dp(16),0,dp(16),0);e.setBackground(round(field,15));return e;}
+    private Button primary(String s){Button b=button(s);b.setTextColor(Color.BLACK);b.setBackground(round(accent,16));return b;}
+    private Button secondary(String s){Button b=button(s);b.setTextColor(text);GradientDrawable d=round(field,16);d.setStroke(dp(1),Color.rgb(55,59,68));b.setBackground(d);return b;}
+    private Button button(String s){Button b=new Button(this);b.setText(s);b.setTextSize(16);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setAllCaps(false);return b;}
+    private void addFields(LinearLayout p,EditText... es){for(int i=0;i<es.length;i++){p.addView(es[i],full(56));if(i<es.length-1)gap(p,12);}}
+    private void divider(LinearLayout p,String word){gap(p,20);LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER);View a=new View(this),b=new View(this);a.setBackgroundColor(Color.rgb(54,57,65));b.setBackgroundColor(Color.rgb(54,57,65));r.addView(a,new LinearLayout.LayoutParams(0,dp(1),1));TextView t=label(word,13,muted,Typeface.NORMAL);t.setGravity(Gravity.CENTER);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(dp(50),dp(30));r.addView(t,tp);r.addView(b,new LinearLayout.LayoutParams(0,dp(1),1));p.addView(r,wrap());gap(p,12);}
+    private boolean validEmail(EditText e){return Patterns.EMAIL_ADDRESS.matcher(e.getText().toString().trim()).matches();}
+    private boolean validUsername(String s){return s.trim().matches("[A-Za-z0-9_]{3,18}");}
+    private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
+    private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);return l;}
+    private TextView label(String s,int z,int c,int style){TextView t=new TextView(this);t.setText(s);t.setTextSize(z);t.setTextColor(c);t.setTypeface(Typeface.DEFAULT,style);t.setTextDirection(View.TEXT_DIRECTION_RTL);return t;}
+    private GradientDrawable round(int c,int r){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(r));return d;}
+    private void gap(LinearLayout p,int h){Space s=new Space(this);p.addView(s,new LinearLayout.LayoutParams(1,dp(h)));}
+    private LinearLayout.LayoutParams wrap(){return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);}
+    private LinearLayout.LayoutParams full(int h){return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(h));}
+    private int dp(int n){return(int)(n*getResources().getDisplayMetrics().density+.5f);}
+    @Override public void onBackPressed(){showLogin();}
 }
