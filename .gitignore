@@ -5,5 +5,12 @@
 # Node
 node_modules/
 
+# Android / Gradle
+android-app/.gradle/
+android-app/**/build/
+local.properties
+*.apk
+*.aab
+
 # Build/output
 *.log
