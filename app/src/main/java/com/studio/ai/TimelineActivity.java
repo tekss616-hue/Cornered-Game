@@ -1,7 +1,8 @@
 package com.studio.ai;
 
-import android.app.*;import android.os.*;import android.content.*;import android.graphics.*;import android.graphics.drawable.GradientDrawable;import android.view.*;import android.widget.*;import androidx.media3.transformer.Transformer;import org.json.*;import java.io.File;import java.util.*;
+import android.app.*;import android.os.*;import android.content.*;import android.graphics.*;import android.graphics.drawable.GradientDrawable;import android.view.*;import android.widget.*;import androidx.annotation.OptIn;import androidx.media3.common.util.UnstableApi;import androidx.media3.transformer.Transformer;import org.json.*;import java.io.File;import java.util.*;
 
+@OptIn(markerClass = UnstableApi.class)
 public class TimelineActivity extends Activity {
  SharedPreferences prefs;LinearLayout root,content;JSONObject video,timeline;String project,style;Transformer transformer;
  final int BG=Color.rgb(9,11,15),CARD=Color.rgb(19,23,30),MUTED=Color.rgb(151,160,174),GREEN=Color.rgb(124,255,178);
