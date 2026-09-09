@@ -149,24 +149,44 @@ public class MainActivity extends Activity {
         GetCredentialRequest request=new GetCredentialRequest.Builder().addCredentialOption(option).build();
         credentialManager.getCredentialAsync(this,request,new CancellationSignal(),Executors.newSingleThreadExecutor(),new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>(){
             @Override public void onResult(GetCredentialResponse result){runOnUiThread(()->{setBusy(button,false,"G   المتابعة باستخدام Google");handleGoogleCredential(result.getCredential());});}
-            @Override public void onError(@NonNull GetCredentialException e){runOnUiThread(()->{setBusy(button,false,"G   المتابعة باستخدام Google");toast("Google: "+e.getClass().getSimpleName()+" | "+safeMessage(e));});}
+            @Override public void onError(@NonNull GetCredentialException e){runOnUiThread(()->{setBusy(button,false,"G   المتابعة باستخدام Google");toast(googleMessage(e));});}
         });
     }
 
     private void handleGoogleCredential(Credential credential){
-        if(!(credential instanceof CustomCredential)){toast("حساب Google غير صالح");return;}
+        if(!(credential instanceof CustomCredential)){toast("تعذر قراءة حساب Google");return;}
         CustomCredential custom=(CustomCredential)credential;
-        if(!GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(custom.getType())){toast("بيانات Google غير متوقعة");return;}
+        if(!GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(custom.getType())){toast("تعذر قراءة بيانات حساب Google");return;}
         try{
             GoogleIdTokenCredential google=GoogleIdTokenCredential.createFrom(custom.getData());
             pendingGoogleName=google.getDisplayName()==null?"":google.getDisplayName();
             AuthCredential firebaseCredential=GoogleAuthProvider.getCredential(google.getIdToken(),null);
-            auth.signInWithCredential(firebaseCredential).addOnCompleteListener(this,t->{if(t.isSuccessful())showGoogleProfile();else toast(authMessage(t.getException()));});
-        }catch(Exception e){toast("Google parse: "+e.getClass().getSimpleName()+" | "+safeMessage(e));}
+            auth.signInWithCredential(firebaseCredential).addOnCompleteListener(this,t->{if(t.isSuccessful())resolveGoogleProfile();else toast(authMessage(t.getException()));});
+        }catch(Exception e){toast("تعذر إكمال تسجيل الدخول باستخدام Google");}
+    }
+
+    private void resolveGoogleProfile(){
+        FirebaseUser current=auth==null?null:auth.getCurrentUser();
+        if(current==null){toast("انتهت جلسة الدخول");showLogin();return;}
+        if(BuildConfig.SERVER_BASE_URL.trim().isEmpty()){showGoogleProfile();return;}
+        current.getIdToken(true).addOnCompleteListener(t->{
+            if(!t.isSuccessful()||t.getResult()==null){toast("تعذر تأكيد جلسة الحساب");return;}
+            String token=t.getResult().getToken();
+            Executors.newSingleThreadExecutor().execute(()->{
+                try{
+                    JSONObject result=getJson("/api/profile/me",token);
+                    runOnUiThread(()->{
+                        if(result.optBoolean("ok")){showSignedIn(current);return;}
+                        if("profile_not_found".equals(result.optString("error"))){showGoogleProfile();return;}
+                        toast(serverMessage(result.optString("error")));
+                    });
+                }catch(Exception e){runOnUiThread(()->toast("تعذر التحقق من بيانات حسابك، حاول مرة أخرى"));}
+            });
+        });
     }
 
     private void showGoogleProfile(){
-        LinearLayout card=screen("أكمل حساب Google","اختيار الحساب تم. بقي اسم اللاعب واسم المستخدم.");
+        LinearLayout card=screen("أكمل حساب Google","هذه الخطوة تظهر مرة واحدة فقط للحساب الجديد.");
         EditText player=input("اسم اللاعب",InputType.TYPE_CLASS_TEXT);player.setText(pendingGoogleName);
         EditText user=input("اسم المستخدم  @username",InputType.TYPE_CLASS_TEXT);
         addFields(card,player,user);gap(card,16);
@@ -186,17 +206,17 @@ public class MainActivity extends Activity {
         FirebaseUser current=auth==null?null:auth.getCurrentUser();
         if(current==null){toast("انتهت جلسة الدخول");callback.done(false);return;}
         if(BuildConfig.SERVER_BASE_URL.trim().isEmpty()){
-            toast("تم تسجيل الحساب في Firebase؛ عنوان الخادم غير مضبوط بعد");callback.done(true);return;
+            toast("تعذر الاتصال بخادم الحسابات");callback.done(false);return;
         }
         current.getIdToken(true).addOnCompleteListener(t->{
-            if(!t.isSuccessful()||t.getResult()==null){toast("تعذر تأكيد جلسة الحساب: "+authMessage(t.getException()));callback.done(false);return;}
+            if(!t.isSuccessful()||t.getResult()==null){toast("تعذر تأكيد جلسة الحساب");callback.done(false);return;}
             String token=t.getResult().getToken();
             Executors.newSingleThreadExecutor().execute(()->{
                 try{
                     JSONObject body=new JSONObject();body.put("playerName",playerName);body.put("username",username);
                     JSONObject result=postJson("/api/profile/bootstrap",token,body);
                     runOnUiThread(()->{if(result.optBoolean("ok")){callback.done(true);}else{toast(serverMessage(result.optString("error")));callback.done(false);}});
-                }catch(Exception e){runOnUiThread(()->{toast("تعذر الاتصال بالخادم: "+e.getClass().getSimpleName()+" | "+safeMessage(e));callback.done(false);});}
+                }catch(Exception e){runOnUiThread(()->{toast("تعذر الاتصال بالخادم، تحقق من الإنترنت وحاول مرة أخرى");callback.done(false);});}
             });
         });
     }
@@ -206,45 +226,74 @@ public class MainActivity extends Activity {
         HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setRequestMethod("POST");c.setConnectTimeout(10000);c.setReadTimeout(10000);c.setDoOutput(true);
         c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Authorization","Bearer "+token);
         try(OutputStream out=c.getOutputStream()){out.write(body.toString().getBytes(StandardCharsets.UTF_8));}
-        int code=c.getResponseCode();BufferedReader br=new BufferedReader(new InputStreamReader(code>=400?c.getErrorStream():c.getInputStream(),StandardCharsets.UTF_8));
+        return readJsonResponse(c);
+    }
+
+    private JSONObject getJson(String path,String token)throws Exception{
+        URL url=new URL(BuildConfig.SERVER_BASE_URL.replaceAll("/$","")+path);
+        HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setRequestMethod("GET");c.setConnectTimeout(10000);c.setReadTimeout(10000);
+        c.setRequestProperty("Authorization","Bearer "+token);
+        return readJsonResponse(c);
+    }
+
+    private JSONObject readJsonResponse(HttpURLConnection c)throws Exception{
+        int code=c.getResponseCode();
+        java.io.InputStream stream=code>=400?c.getErrorStream():c.getInputStream();
+        if(stream==null){c.disconnect();return new JSONObject().put("error","network_error");}
+        BufferedReader br=new BufferedReader(new InputStreamReader(stream,StandardCharsets.UTF_8));
         StringBuilder sb=new StringBuilder();String line;while((line=br.readLine())!=null)sb.append(line);br.close();c.disconnect();
         return new JSONObject(sb.length()==0?"{}":sb.toString());
     }
 
     private void showSignedIn(FirebaseUser user){
-        LinearLayout card=screen("تم تسجيل الدخول","حسابك متصل الآن بـ Firebase.");
+        LinearLayout card=screen("تم تسجيل الدخول","حسابك جاهز.");
         String email=user==null||user.getEmail()==null?"حساب Google":user.getEmail();
         TextView status=label("✓  "+email,16,accent,Typeface.BOLD);status.setGravity(Gravity.CENTER);card.addView(status,wrap());gap(card,18);
-        TextView note=label("الدفعة الأولى جاهزة للمصادقة. بعد إكمال إعداد الخادم، سيتم إنشاء بروفايل اللاعب وحجز اسم المستخدم تلقائيًا.",14,muted,Typeface.NORMAL);note.setGravity(Gravity.CENTER);note.setLineSpacing(0,1.2f);card.addView(note,wrap());gap(card,20);
+        TextView note=label("تم حفظ بيانات حسابك، ولن نطلب اسم اللاعب واسم المستخدم مرة ثانية عند تسجيل الدخول بنفس الحساب.",14,muted,Typeface.NORMAL);note.setGravity(Gravity.CENTER);note.setLineSpacing(0,1.2f);card.addView(note,wrap());gap(card,20);
         Button logout=secondary("تسجيل الخروج");card.addView(logout,full(54));logout.setOnClickListener(v->{auth.signOut();showLogin();});
     }
 
     private String authMessage(Exception e){
-        if(e==null)return "Firebase: UNKNOWN";
-        StringBuilder out=new StringBuilder();
+        if(e==null)return "حدث خطأ في تسجيل الدخول، حاول مرة أخرى";
         Throwable current=e;
-        int depth=0;
-        while(current!=null&&depth<4){
-            if(depth>0)out.append(" <- ");
-            out.append(current.getClass().getSimpleName());
+        while(current!=null){
             if(current instanceof FirebaseAuthException){
                 String code=((FirebaseAuthException)current).getErrorCode();
-                if(code!=null&&!code.isEmpty())out.append("[").append(code).append("]");
+                if("ERROR_EMAIL_ALREADY_IN_USE".equals(code)||"ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL".equals(code)||"ERROR_CREDENTIAL_ALREADY_IN_USE".equals(code))return "هذا البريد الإلكتروني مرتبط بحساب موجود مسبقًا. سجل الدخول بدل إنشاء حساب جديد.";
+                if("ERROR_INVALID_EMAIL".equals(code))return "البريد الإلكتروني غير صحيح";
+                if("ERROR_WEAK_PASSWORD".equals(code))return "كلمة المرور ضعيفة، استخدم كلمة مرور أقوى";
+                if("ERROR_WRONG_PASSWORD".equals(code)||"ERROR_USER_NOT_FOUND".equals(code)||"ERROR_INVALID_CREDENTIAL".equals(code))return "البريد الإلكتروني أو كلمة المرور غير صحيحة";
+                if("ERROR_USER_DISABLED".equals(code))return "هذا الحساب موقوف حاليًا";
+                if("ERROR_TOO_MANY_REQUESTS".equals(code))return "محاولات كثيرة، انتظر قليلًا ثم حاول مرة أخرى";
+                if("ERROR_NETWORK_REQUEST_FAILED".equals(code))return "تعذر الاتصال بالإنترنت، تحقق من الشبكة وحاول مرة أخرى";
+                return "تعذر إكمال العملية، حاول مرة أخرى";
             }
-            String message=current.getMessage();
-            if(message!=null&&!message.trim().isEmpty())out.append(": ").append(message.trim());
             current=current.getCause();
-            depth++;
         }
-        return "Firebase: "+out;
+        return "تعذر إكمال العملية، حاول مرة أخرى";
+    }
+
+    private String googleMessage(Throwable e){
+        String name=e==null?"":e.getClass().getSimpleName();
+        if(name.contains("NoCredential"))return "لم يتم العثور على حساب Google متاح على الجهاز";
+        if(name.contains("Cancellation"))return "تم إلغاء تسجيل الدخول باستخدام Google";
+        return "تعذر تسجيل الدخول باستخدام Google، حاول مرة أخرى";
     }
 
     private String safeMessage(Throwable e){
-        if(e==null||e.getMessage()==null||e.getMessage().trim().isEmpty())return "no_message";
+        if(e==null||e.getMessage()==null||e.getMessage().trim().isEmpty())return "";
         return e.getMessage().trim();
     }
 
-    private String serverMessage(String code){if("username_taken".equals(code))return "اسم المستخدم مستخدم، اختر اسمًا آخر";if("invalid_username".equals(code))return "اسم المستخدم غير صالح";if(code!=null&&!code.isEmpty())return "الخادم: "+code;return "تعذر حفظ بروفايل اللاعب";}
+    private String serverMessage(String code){
+        if("username_taken".equals(code))return "اسم المستخدم مستخدم، اختر اسمًا آخر";
+        if("invalid_username".equals(code))return "اسم المستخدم غير صالح";
+        if("invalid_player_name".equals(code))return "اسم اللاعب غير صالح";
+        if("profile_not_found".equals(code))return "لم يتم العثور على بيانات الحساب";
+        if("auth_required".equals(code))return "انتهت جلسة الدخول، سجل الدخول مرة أخرى";
+        if("network_error".equals(code))return "تعذر الاتصال بالخادم، حاول مرة أخرى";
+        return "تعذر إكمال العملية، حاول مرة أخرى";
+    }
     private void setBusy(Button b,boolean busy,String value){b.setEnabled(!busy);b.setAlpha(busy?.65f:1f);b.setText(value);}
 
     private LinearLayout screen(String title,String subtitle){
