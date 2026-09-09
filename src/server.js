@@ -23,12 +23,42 @@ function send(res,status,body){res.writeHead(status,{'content-type':'application
 async function readJson(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>64*1024)throw new Error('request_too_large');chunks.push(chunk)}const raw=Buffer.concat(chunks).toString('utf8');return raw?JSON.parse(raw):{};}
 async function requireUser(req){const auth=String(req.headers.authorization||'');if(!auth.startsWith('Bearer '))throw new Error('auth_required');return getAuth().verifyIdToken(auth.slice(7).trim(),true);}
 async function requireAdmin(req){const d=await requireUser(req);if(!isAdminEmail(d.email))throw new Error('admin_forbidden');return d;}
-function statusFor(code){if(code==='auth_required'||code.includes('Firebase ID token')||code.includes('auth/id-token'))return 401;if(code==='admin_forbidden')return 403;if(code.includes('not_found'))return 404;return 400;}
+function statusFor(code){if(code==='auth_required'||code.includes('Firebase ID token')||code.includes('auth/id-token'))return 401;if(code==='admin_forbidden')return 403;if(code==='username_taken')return 409;if(code.includes('not_found'))return 404;return 400;}
+function normalizeUsername(value){return String(value||'').trim().replace(/^@/,'').toLowerCase();}
 
 const server=http.createServer(async(req,res)=>{
   if(req.method==='OPTIONS')return send(res,204,{});
   try{
     if(req.method==='GET'&&req.url==='/api/health')return send(res,200,{ok:true,server:'hsnsn-clean-v1',liveAI:await hasOpenAIKey(),nader:true});
+
+    if(req.method==='POST'&&req.url==='/api/profile/bootstrap'){
+      const identity=await requireUser(req),body=await readJson(req);
+      const playerName=String(body.playerName||'').trim();
+      const username=normalizeUsername(body.username);
+      if(playerName.length<2||playerName.length>30)throw new Error('invalid_player_name');
+      if(!/^[a-z0-9_]{3,18}$/.test(username))throw new Error('invalid_username');
+      const db=getFirestore(),userRef=db.collection('users').doc(identity.uid),usernameRef=db.collection('usernames').doc(username);
+      await db.runTransaction(async tx=>{
+        const [reserved,current]=await Promise.all([tx.get(usernameRef),tx.get(userRef)]);
+        if(reserved.exists&&reserved.get('uid')!==identity.uid)throw new Error('username_taken');
+        const previous=normalizeUsername(current.exists?current.get('username'):'');
+        if(previous&&previous!==username){
+          const previousRef=db.collection('usernames').doc(previous),previousDoc=await tx.get(previousRef);
+          if(previousDoc.exists&&previousDoc.get('uid')===identity.uid)tx.delete(previousRef);
+        }
+        const now=new Date();
+        tx.set(usernameRef,{uid:identity.uid,username,updatedAt:now},{merge:true});
+        tx.set(userRef,{uid:identity.uid,email:identity.email||null,playerName,name:playerName,username,usernameLower:username,provider:identity.firebase?.sign_in_provider||'unknown',updatedAt:now,createdAt:current.exists?(current.get('createdAt')||now):now},{merge:true});
+      });
+      return send(res,200,{ok:true,profile:{uid:identity.uid,playerName,username,email:identity.email||null}});
+    }
+
+    if(req.method==='GET'&&req.url==='/api/profile/me'){
+      const identity=await requireUser(req),doc=await getFirestore().collection('users').doc(identity.uid).get();
+      if(!doc.exists)throw new Error('profile_not_found');
+      const data=doc.data()||{};
+      return send(res,200,{ok:true,profile:{uid:identity.uid,playerName:data.playerName||data.name||'',username:data.username||'',email:identity.email||data.email||null}});
+    }
 
     if(req.method==='POST'&&req.url==='/api/social/friend-push'){
       const from=await requireUser(req),body=await readJson(req),toUid=String(body.toUid||'');
