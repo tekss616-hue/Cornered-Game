@@ -1,0 +1,48 @@
+package com.studio.ai;
+
+import android.content.SharedPreferences;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+public final class LongTermMemory {
+    private static final int MAX_SAMPLES = 80;
+    private LongTermMemory() {}
+
+    private static String key(String style){ return "ltm_style_"+Integer.toHexString(style.hashCode()); }
+
+    public static JSONObject load(SharedPreferences prefs,String style){
+        try{return new JSONObject(prefs.getString(key(style),"{}"));}catch(Exception e){return new JSONObject();}
+    }
+
+    public static void learn(SharedPreferences prefs,String project,String style,JSONObject video){
+        try{
+            JSONObject inspection=video.optJSONObject("inspection");
+            JSONObject profile=inspection==null?null:inspection.optJSONObject("editingStyle");
+            if(profile==null)return;
+            JSONObject memory=load(prefs,style);
+            memory.put("style",style); memory.put("updatedAt",System.currentTimeMillis());
+            JSONArray samples=memory.optJSONArray("samples");if(samples==null)samples=new JSONArray();
+            String uri=video.optString("uri","");
+            for(int i=samples.length()-1;i>=0;i--)if(uri.equals(samples.optJSONObject(i).optString("uri")))samples.remove(i);
+            JSONObject sample=new JSONObject();sample.put("project",project);sample.put("video",video.optString("name","فيديو"));sample.put("uri",uri);sample.put("learnedAt",System.currentTimeMillis());sample.put("profile",new JSONObject(profile.toString()));samples.put(sample);
+            while(samples.length()>MAX_SAMPLES)samples.remove(0);
+            memory.put("samples",samples);memory.put("summary",summarize(samples));
+            prefs.edit().putString(key(style),memory.toString()).apply();
+        }catch(Exception ignored){}
+    }
+
+    private static JSONObject summarize(JSONArray samples)throws Exception{
+        JSONObject out=new JSONObject();int n=0;double cuts=0,shot=0,motion=0,change=0,bright=0,color=0,active=0,variation=0;int fast=0,medium=0,slow=0,dark=0,balanced=0,brightTone=0;
+        JSONArray fpSum=new JSONArray();double[] f=new double[8];
+        for(int i=0;i<samples.length();i++){
+            JSONObject s=samples.optJSONObject(i),p=s==null?null:s.optJSONObject("profile");if(p==null)continue;n++;
+            cuts+=p.optDouble("cutsPerMinute");shot+=p.optDouble("averageShotSeconds");motion+=p.optDouble("averageMotion");change+=p.optDouble("averageVisualChange");bright+=p.optDouble("averageBrightness");color+=p.optDouble("averageColorRange");active+=p.optDouble("activeTimelineRatio");variation+=p.optDouble("shotLengthVariation");
+            String pace=p.optString("pace");if("fast".equals(pace))fast++;else if("medium".equals(pace))medium++;else slow++;
+            String tone=p.optString("tone");if("dark".equals(tone))dark++;else if("bright".equals(tone))brightTone++;else balanced++;
+            JSONArray a=p.optJSONArray("fingerprint");if(a!=null)for(int j=0;j<Math.min(8,a.length());j++)f[j]+=a.optDouble(j);
+        }
+        out.put("sampleCount",n);if(n==0)return out;out.put("avgCutsPerMinute",r(cuts/n));out.put("avgShotSeconds",r(shot/n));out.put("avgMotion",r(motion/n));out.put("avgVisualChange",r(change/n));out.put("avgBrightness",r(bright/n));out.put("avgColorRange",r(color/n));out.put("avgActiveRatio",r(active/n));out.put("avgShotVariation",r(variation/n));out.put("dominantPace",fast>=medium&&fast>=slow?"fast":medium>=slow?"medium":"slow");out.put("dominantTone",dark>=balanced&&dark>=brightTone?"dark":brightTone>=balanced?"bright":"balanced");for(double x:f)fpSum.put(r(x/n));out.put("meanFingerprint",fpSum);return out;
+    }
+    public static void clear(SharedPreferences prefs,String style){prefs.edit().remove(key(style)).apply();}
+    private static double r(double x){return Math.round(x*100.0)/100.0;}
+}
