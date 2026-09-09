@@ -35,6 +35,7 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.AuthCredential;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.auth.GoogleAuthProvider;
 
@@ -108,7 +109,7 @@ public class MainActivity extends Activity {
         forgot.setOnClickListener(v->{
             if(!validEmail(email)){toast("اكتب بريدك أولًا");return;}
             if(!firebaseReady())return;
-            auth.sendPasswordResetEmail(email.getText().toString().trim()).addOnCompleteListener(t->toast(t.isSuccessful()?"أرسلنا رابط استعادة كلمة المرور":"تعذر إرسال رابط الاستعادة"));
+            auth.sendPasswordResetEmail(email.getText().toString().trim()).addOnCompleteListener(t->toast(t.isSuccessful()?"أرسلنا رابط استعادة كلمة المرور":authMessage(t.getException())));
         });
     }
 
@@ -148,7 +149,7 @@ public class MainActivity extends Activity {
         GetCredentialRequest request=new GetCredentialRequest.Builder().addCredentialOption(option).build();
         credentialManager.getCredentialAsync(this,request,new CancellationSignal(),Executors.newSingleThreadExecutor(),new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>(){
             @Override public void onResult(GetCredentialResponse result){runOnUiThread(()->{setBusy(button,false,"G   المتابعة باستخدام Google");handleGoogleCredential(result.getCredential());});}
-            @Override public void onError(@NonNull GetCredentialException e){runOnUiThread(()->{setBusy(button,false,"G   المتابعة باستخدام Google");toast("تعذر تسجيل الدخول باستخدام Google");});}
+            @Override public void onError(@NonNull GetCredentialException e){runOnUiThread(()->{setBusy(button,false,"G   المتابعة باستخدام Google");toast("Google: "+e.getClass().getSimpleName());});}
         });
     }
 
@@ -195,7 +196,7 @@ public class MainActivity extends Activity {
                     JSONObject body=new JSONObject();body.put("playerName",playerName);body.put("username",username);
                     JSONObject result=postJson("/api/profile/bootstrap",token,body);
                     runOnUiThread(()->{if(result.optBoolean("ok")){callback.done(true);}else{toast(serverMessage(result.optString("error")));callback.done(false);}});
-                }catch(Exception e){runOnUiThread(()->{toast("تعذر الاتصال بالخادم");callback.done(false);});}
+                }catch(Exception e){runOnUiThread(()->{toast("تعذر الاتصال بالخادم: "+e.getClass().getSimpleName());callback.done(false);});}
             });
         });
     }
@@ -219,13 +220,21 @@ public class MainActivity extends Activity {
     }
 
     private String authMessage(Exception e){
+        if(e instanceof FirebaseAuthException){
+            String code=((FirebaseAuthException)e).getErrorCode();
+            if("ERROR_OPERATION_NOT_ALLOWED".equals(code))return "Firebase: فعّل Email/Password في Authentication";
+            if("ERROR_EMAIL_ALREADY_IN_USE".equals(code))return "البريد مستخدم من قبل";
+            if("ERROR_WEAK_PASSWORD".equals(code))return "كلمة المرور ضعيفة";
+            if("ERROR_INVALID_EMAIL".equals(code))return "البريد الإلكتروني غير صالح";
+            if("ERROR_INVALID_API_KEY".equals(code))return "Firebase: مفتاح API غير صحيح";
+            if("ERROR_NETWORK_REQUEST_FAILED".equals(code))return "تحقق من اتصال الإنترنت";
+            return "Firebase: "+code;
+        }
         String s=e==null?"":String.valueOf(e.getMessage()).toLowerCase();
-        if(s.contains("email address is already"))return "البريد مستخدم من قبل";
-        if(s.contains("password")&&s.contains("invalid"))return "البريد أو كلمة المرور غير صحيحة";
         if(s.contains("network"))return "تحقق من اتصال الإنترنت";
-        return "تعذر إكمال عملية الحساب";
+        return "Firebase: "+(e==null?"UNKNOWN":e.getClass().getSimpleName());
     }
-    private String serverMessage(String code){if("username_taken".equals(code))return "اسم المستخدم مستخدم، اختر اسمًا آخر";if("invalid_username".equals(code))return "اسم المستخدم غير صالح";return "تعذر حفظ بروفايل اللاعب";}
+    private String serverMessage(String code){if("username_taken".equals(code))return "اسم المستخدم مستخدم، اختر اسمًا آخر";if("invalid_username".equals(code))return "اسم المستخدم غير صالح";if(code!=null&&!code.isEmpty())return "الخادم: "+code;return "تعذر حفظ بروفايل اللاعب";}
     private void setBusy(Button b,boolean busy,String value){b.setEnabled(!busy);b.setAlpha(busy?.65f:1f);b.setText(value);}
 
     private LinearLayout screen(String title,String subtitle){
@@ -247,7 +256,7 @@ public class MainActivity extends Activity {
     private void divider(LinearLayout p,String word){gap(p,20);LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER);View a=new View(this),b=new View(this);a.setBackgroundColor(Color.rgb(54,57,65));b.setBackgroundColor(Color.rgb(54,57,65));r.addView(a,new LinearLayout.LayoutParams(0,dp(1),1));TextView t=label(word,13,muted,Typeface.NORMAL);t.setGravity(Gravity.CENTER);r.addView(t,new LinearLayout.LayoutParams(dp(50),dp(30)));r.addView(b,new LinearLayout.LayoutParams(0,dp(1),1));p.addView(r,wrap());gap(p,12);}
     private boolean validEmail(EditText e){return Patterns.EMAIL_ADDRESS.matcher(e.getText().toString().trim()).matches();}
     private boolean validUsername(String s){return s.trim().matches("[A-Za-z0-9_]{3,18}");}
-    private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
+    private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);return l;}
     private TextView label(String s,int z,int c,int style){TextView t=new TextView(this);t.setText(s);t.setTextSize(z);t.setTextColor(c);t.setTypeface(Typeface.DEFAULT,style);t.setTextDirection(View.TEXT_DIRECTION_RTL);return t;}
     private GradientDrawable round(int c,int r){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(r));return d;}
