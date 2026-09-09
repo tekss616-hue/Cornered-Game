@@ -2,6 +2,19 @@ plugins {
     id("com.android.application")
 }
 
+fun javaString(value: String): String = "\"" + value
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+    .replace("\n", "\\n")
+    .replace("\r", "\\r") + "\""
+
+val firebaseSecret = System.getenv("CORNERED_FIREBASE_API_KEY")?.trim().orEmpty()
+val firebaseApiKey = Regex("\\\"current_key\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+    .find(firebaseSecret)
+    ?.groupValues
+    ?.get(1)
+    ?: firebaseSecret
+
 android {
     namespace = "com.cornered.game"
     compileSdk = 36
@@ -10,16 +23,16 @@ android {
         applicationId = "com.cornered.game"
         minSdk = 24
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
 
-        buildConfigField("String", "FIREBASE_API_KEY", "\"${System.getenv("CORNERED_FIREBASE_API_KEY") ?: ""}\"")
-        buildConfigField("String", "FIREBASE_APP_ID", "\"1:228318611339:android:0dc033187e6921e974518e\"")
-        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"veilmark-d2480\"")
-        buildConfigField("String", "FIREBASE_DATABASE_URL", "\"https://veilmark-d2480-default-rtdb.firebaseio.com\"")
-        buildConfigField("String", "FIREBASE_STORAGE_BUCKET", "\"veilmark-d2480.firebasestorage.app\"")
-        buildConfigField("String", "FIREBASE_WEB_CLIENT_ID", "\"228318611339-aehctm7ggfreblqfpddd8efglgh87rtt.apps.googleusercontent.com\"")
-        buildConfigField("String", "SERVER_BASE_URL", "\"https://cornered-server.onrender.com\"")
+        buildConfigField("String", "FIREBASE_API_KEY", javaString(firebaseApiKey))
+        buildConfigField("String", "FIREBASE_APP_ID", javaString("1:228318611339:android:0dc033187e6921e974518e"))
+        buildConfigField("String", "FIREBASE_PROJECT_ID", javaString("veilmark-d2480"))
+        buildConfigField("String", "FIREBASE_DATABASE_URL", javaString("https://veilmark-d2480-default-rtdb.firebaseio.com"))
+        buildConfigField("String", "FIREBASE_STORAGE_BUCKET", javaString("veilmark-d2480.firebasestorage.app"))
+        buildConfigField("String", "FIREBASE_WEB_CLIENT_ID", javaString("228318611339-aehctm7ggfreblqfpddd8efglgh87rtt.apps.googleusercontent.com"))
+        buildConfigField("String", "SERVER_BASE_URL", javaString("https://cornered-server.onrender.com"))
     }
 
     buildFeatures {
