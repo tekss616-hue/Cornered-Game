@@ -14,210 +14,41 @@ import org.json.*;
 import java.util.*;
 
 public class MainActivity extends Activity {
-    LinearLayout root, content;
-    SharedPreferences prefs;
-    String project="", style="";
-    Runnable backAction;
-    static final int PICK_VIDEO=2001;
-    final int BG=Color.rgb(9,11,15), CARD=Color.rgb(19,23,30), MUTED=Color.rgb(151,160,174), GREEN=Color.rgb(124,255,178);
+    LinearLayout root, content; SharedPreferences prefs; String project="", style=""; Runnable backAction;
+    static final int PICK_VIDEO=2001; final int BG=Color.rgb(9,11,15),CARD=Color.rgb(19,23,30),MUTED=Color.rgb(151,160,174),GREEN=Color.rgb(124,255,178);
     final String[] styles={"إعلانات الشركات","تجمعيات أنمي","TikTok","YouTube","رعب","أكشن","عام"};
-
-    @Override public void onCreate(Bundle b){
-        super.onCreate(b);
-        prefs=getSharedPreferences("studio",MODE_PRIVATE);
-        getWindow().setStatusBarColor(BG);
-        getWindow().setNavigationBarColor(BG);
-        home();
-    }
-
-    int dp(float x){return Math.round(x*getResources().getDisplayMetrics().density);}
-    GradientDrawable bg(int c,float r){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(r));return d;}
-
-    TextView tx(String s,float size,int color,boolean bold){
-        TextView v=new TextView(this);
-        v.setText(s);v.setTextSize(size);v.setTextColor(color);
-        v.setTypeface(Typeface.create("sans",bold?Typeface.BOLD:Typeface.NORMAL));
-        v.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
-        v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        v.setLineSpacing(0,1.12f);return v;
-    }
-
-    Button btn(String s){
-        Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextSize(16);
-        b.setTextColor(Color.rgb(5,20,13));b.setTypeface(null,Typeface.BOLD);b.setBackground(bg(GREEN,18));return b;
-    }
-
-    void base(String title,String subtitle){
-        ScrollView sc=new ScrollView(this);sc.setFillViewport(true);sc.setBackgroundColor(BG);
-        root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        sc.addView(root,new ScrollView.LayoutParams(-1,-2));setContentView(sc);
-        root.setOnApplyWindowInsetsListener((v,i)->{v.setPadding(dp(20),i.getSystemWindowInsetTop()+dp(14),dp(20),i.getSystemWindowInsetBottom()+dp(24));return i;});
-        root.requestApplyInsets();
-        TextView brand=tx("STUDIO  /  AI",12,GREEN,true);brand.setTextDirection(View.TEXT_DIRECTION_LTR);root.addView(brand);
-        root.addView(tx(title,29,Color.WHITE,true));
-        TextView sub=tx(subtitle,14,MUTED,false);sub.setPadding(0,dp(4),0,dp(20));root.addView(sub);
-        content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);root.addView(content);
-    }
-
-    void card(String title,String subtitle,Runnable action){
-        LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(18),dp(13),dp(18),dp(13));c.setBackground(bg(CARD,18));
-        c.addView(tx(title,17,Color.WHITE,true));if(subtitle!=null&&!subtitle.isEmpty())c.addView(tx(subtitle,13,MUTED,false));
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));content.addView(c,p);
-        if(action!=null)c.setOnClickListener(v->action.run());
-    }
-
-    void back(String label,Runnable action){
-        TextView b=tx("‹  "+label,15,GREEN,true);b.setPadding(0,dp(20),0,dp(18));root.addView(b);b.setOnClickListener(v->action.run());backAction=action;
-    }
-
-    void home(){
-        project="";style="";backAction=null;base("الاستوديو","مساحة عملك الخاصة للمونتاج والتعلّم من الأساليب.");
-        Button b=btn("＋  إنشاء مشروع");content.addView(b,new LinearLayout.LayoutParams(-1,dp(58)));b.setOnClickListener(v->newProject());
-        for(String p:prefs.getStringSet("projects",new LinkedHashSet<>())){
-            String[] x=p.split("\\|",2);String n=x[0],s=x.length>1?x[1]:"عام";card(n,s,()->workspace(n,s));
-        }
-    }
-
-    void newProject(){
-        base("مشروع جديد","اكتب اسم المشروع ثم اختر قسمه.");
-        EditText e=new EditText(this);e.setHint("اسم المشروع");e.setTextColor(Color.WHITE);e.setHintTextColor(MUTED);e.setPadding(dp(14),0,dp(14),0);e.setBackground(bg(CARD,18));
-        content.addView(e,new LinearLayout.LayoutParams(-1,dp(58)));
-        Button b=btn("التالي");LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(56));bp.setMargins(0,dp(10),0,0);content.addView(b,bp);
-        b.setOnClickListener(v->{String n=e.getText().toString().trim();if(n.isEmpty()){e.setError("اكتب اسم المشروع");return;}choose(n);});back("الرئيسية",this::home);
-    }
-
-    void choose(String n){base("اختر أسلوب المشروع",n);for(String s:styles)card(s,"",()->saveProject(n,s));back("الرئيسية",this::home);}
-    void saveProject(String n,String s){Set<String> p=new LinkedHashSet<>(prefs.getStringSet("projects",new LinkedHashSet<>()));p.add(n+"|"+s);prefs.edit().putStringSet("projects",p).apply();workspace(n,s);}
-
-    void workspace(String n,String s){
-        project=n;style=s;base(n,s+" • مساحة مشروع مستقلة");
-        card("🎬 الفيديوهات","استيراد وتشغيل الفيديو",()->videos(n,s));
-        card("🧪 التحليل البصري والزمني","الحركة • التغير • مرشحات القص",()->analysis(n,s));
-        card("🎛 بصمة أسلوب المونتاج","قياسات أسلوب كل فيديو",()->styleProfiles(n,s));
-        JSONObject sm=ShortTermMemory.load(prefs,n,s);card("🧠 الذاكرة قصيرة المدى",sm.optString("activeVideoName","لا يوجد سياق نشط"),()->memory(n,s));
-        JSONObject lm=LongTermMemory.load(prefs,s),ls=lm.optJSONObject("summary");int learned=ls==null?0:ls.optInt("sampleCount");
-        card("🧠 ذاكرة القسم طويلة المدى",learned+" فيديو متعلَّم",()->longTerm(n,s));
-        card("📊 المقارنة والتعلّم",learned<2?"تحتاج فيديوهين محللين":"مقارنة بصمات القسم",()->comparison(n,s));
-        card("🛠 خطة المونتاج المتعلَّمة",learned==0?"تحتاج فيديو متعلَّم على الأقل":"اقتراحات عملية مبنية على بصمة القسم",()->suggestions(n,s));
-        card("🗂 الأرشيف","مواد المشروع",()->videos(n,s));
-        int chatCount=ChatStore.load(prefs,n,s).length();card("💬 شات المشروع",chatCount==0?"متصل بمحرك حقيقي • ابدأ المحادثة":chatCount+" رسالة محفوظة محليًا",()->chat(n,s));
-        JSONObject fx=EffectLibrary.summary(prefs,s);card("✨ المؤثرات والانتقالات",fx.optInt("liked")+" مفضلة • "+fx.optInt("rejected")+" مستبعدة • مكتبة "+s,()->effectsLibrary(n,s));
-        back("الرئيسية",this::home);
-    }
-
-    String videoKey(String n,String s){return "videos_"+Integer.toHexString((n+"|"+s).hashCode());}
-    JSONArray list(String n,String s){try{return new JSONArray(prefs.getString(videoKey(n,s),"[]"));}catch(Exception e){return new JSONArray();}}
-    void save(String n,String s,JSONArray a){prefs.edit().putString(videoKey(n,s),a.toString()).apply();}
-
-    void videos(String n,String s){
-        project=n;style=s;base("فيديوهات المشروع",n);Button b=btn("＋ استيراد فيديو");content.addView(b,new LinearLayout.LayoutParams(-1,dp(56)));b.setOnClickListener(v->pick());
-        JSONArray a=list(n,s);for(int i=a.length()-1;i>=0;i--){JSONObject o=a.optJSONObject(i);if(o!=null)card("🎞 "+o.optString("name","فيديو"),o.optJSONObject("inspection")==null?"لم يحلل":"تحليل v"+o.optJSONObject("inspection").optInt("analysisVersion"),()->player(o,n,s));}
-        back("المشروع",()->workspace(n,s));
-    }
-
-    void analysis(String n,String s){
-        base("التحليل البصري والزمني",n);forObj(list(n,s),o->{JSONObject x=o.optJSONObject("inspection");card(o.optString("name"),x==null?"لم يحلل":"الحركة "+round(x.optDouble("averageMotion"))+" • التغير "+round(x.optDouble("averageChange")),()->reanalyze(o,n,s));});back("المشروع",()->workspace(n,s));
-    }
-
-    void styleProfiles(String n,String s){
-        base("بصمات المونتاج",n);forObj(list(n,s),o->{JSONObject in=o.optJSONObject("inspection"),x=in==null?null:in.optJSONObject("editingStyle");card(o.optString("name"),x==null?"لا توجد بصمة":"الإيقاع "+ar(x.optString("pace"))+" • القصات/دقيقة "+round(x.optDouble("cutsPerMinute")),null);});back("المشروع",()->workspace(n,s));
-    }
-
-    void memory(String n,String s){
-        base("الذاكرة قصيرة المدى",n);JSONObject m=ShortTermMemory.load(prefs,n,s);card("السياق الحالي",m.optString("activeVideoName","لا يوجد فيديو نشط"),null);
-        EditText e=new EditText(this);e.setHint("ملاحظة مؤقتة للمشروع");e.setTextColor(Color.WHITE);e.setHintTextColor(MUTED);e.setPadding(dp(14),dp(10),dp(14),dp(10));e.setBackground(bg(CARD,18));content.addView(e,new LinearLayout.LayoutParams(-1,dp(70)));
-        Button b=btn("حفظ الملاحظة");content.addView(b,new LinearLayout.LayoutParams(-1,dp(52)));b.setOnClickListener(v->{String t=e.getText().toString().trim();if(!t.isEmpty()){ShortTermMemory.addNote(prefs,n,s,t);memory(n,s);}});
-        JSONArray notes=m.optJSONArray("notes");if(notes!=null)for(int i=notes.length()-1;i>=0;i--){JSONObject q=notes.optJSONObject(i);if(q!=null)card("ملاحظة",q.optString("text"),null);}back("المشروع",()->workspace(n,s));
-    }
-
-    void longTerm(String n,String s){
-        base("ذاكرة القسم طويلة المدى",s);JSONObject x=LongTermMemory.load(prefs,s).optJSONObject("summary");
-        if(x==null)card("لا توجد بيانات","حلل فيديو أولًا",null);else card("النمط المتعلَّم","العينات: "+x.optInt("sampleCount")+"\nالإيقاع: "+ar(x.optString("dominantPace"))+"\nالقصات/دقيقة: "+round(x.optDouble("avgCutsPerMinute"))+"\nمتوسط اللقطة: "+round(x.optDouble("avgShotSeconds"))+" ث\nالحركة: "+round(x.optDouble("avgMotion")),null);back("المشروع",()->workspace(n,s));
-    }
-
-    void comparison(String n,String s){
-        base("المقارنة والتعلّم",s);try{JSONObject r=StyleComparisonEngine.compare(LongTermMemory.load(prefs,s));if(r.optInt("sampleCount")<2)card("غير جاهزة","تحتاج فيديوهين محللين على الأقل",null);else{card("تماسك القسم","متوسط التشابه "+round(r.optDouble("averageSimilarity"))+"%",null);JSONArray a=r.optJSONArray("videos");for(int i=0;a!=null&&i<a.length();i++){JSONObject v=a.optJSONObject(i);if(v!=null)card(v.optString("video"),"التشابه "+round(v.optDouble("similarity"))+"%",null);}}}catch(Exception e){card("خطأ","تعذر بناء المقارنة",null);}back("المشروع",()->workspace(n,s));
-    }
-
-    void suggestions(String n,String s){
-        base("خطة المونتاج المتعلَّمة",n+" • "+s);JSONArray a=list(n,s);JSONObject mem=LongTermMemory.load(prefs,s);boolean any=false;
-        for(int i=a.length()-1;i>=0;i--){JSONObject o=a.optJSONObject(i),in=o==null?null:o.optJSONObject("inspection");if(in==null||in.optJSONObject("editingStyle")==null)continue;any=true;try{JSONObject r=EditingSuggestionEngine.build(in,mem);card("🎯 "+o.optString("name","فيديو"),r.optBoolean("ready")?"التشابه مع أسلوب القسم: "+round(r.optDouble("similarityToLearnedStyle"))+"%":"الخطة غير جاهزة",()->suggestionDetail(o,n,s));}catch(Exception ignored){}}
-        if(!any)card("لا توجد فيديوهات جاهزة","حلل فيديو لبناء بصمته أولًا",null);back("المشروع",()->workspace(n,s));
-    }
-
-    void suggestionDetail(JSONObject o,String n,String s){
-        base("خطة مونتاج",o.optString("name"));try{JSONObject r=EditingSuggestionEngine.build(o.optJSONObject("inspection"),LongTermMemory.load(prefs,s));if(!r.optBoolean("ready"))card("غير جاهزة",r.optString("message"),null);else{card("مدى القرب من النمط","التشابه: "+round(r.optDouble("similarityToLearnedStyle"))+"%\nهدف القصات/دقيقة: "+round(r.optDouble("targetCutsPerMinute"))+"\nهدف متوسط اللقطة: "+round(r.optDouble("targetAverageShotSeconds"))+" ث\nهدف الحركة: "+round(r.optDouble("targetMotion"))+"\nالإيقاع المتعلَّم: "+ar(r.optString("dominantPace"))+"\nالإضاءة المتعلَّمة: "+ar(r.optString("dominantTone")),null);JSONArray ac=r.optJSONArray("actions");if(ac==null||ac.length()==0)card("النتيجة",r.optString("message"),null);else for(int i=0;i<ac.length();i++){JSONObject x=ac.optJSONObject(i);if(x!=null)card((i+1)+". "+x.optString("metric"),x.optString("action")+"\nالحالي: "+round(x.optDouble("current"))+" → الهدف: "+round(x.optDouble("target"))+" "+x.optString("unit"),null);}card("حدود هذه الخطة","الاقتراحات مبنية على القياسات والبصمات المتعلمة فقط. لا تدّعي فهم معنى المشهد ولا تنفذ القص تلقائيًا بعد.",null);}}catch(Exception e){card("خطأ","تعذر إنشاء الخطة",null);}back("الخطط",()->suggestions(n,s));
-    }
-
-    void effectsLibrary(String n,String s){
-        project=n;style=s;base("المؤثرات والانتقالات",s+" • مكتبة مستقلة لهذا القسم");
-        JSONObject learned=LongTermMemory.load(prefs,s).optJSONObject("summary"),sum=EffectLibrary.summary(prefs,s);
-        card("تفضيلات القسم","مفضلة: "+sum.optInt("liked")+" • مستبعدة: "+sum.optInt("rejected")+" • بدون تقييم: "+sum.optInt("neutral"),null);
-        card("ما الذي يعمل الآن؟","هذه مكتبة حقيقية تحفظ اختياراتك وتُرتب التوصيات حسب إيقاع/حركة القسم. تطبيق المؤثر فعليًا على ملف الفيديو سيكون في دفعة التنفيذ والرندر، لذلك لن ندّعي أنه طُبق الآن.",null);
-        JSONArray rec=EffectLibrary.recommended(prefs,s,learned);
-        card("⭐ المقترحة أولًا","الترتيب يتغير حسب بصمة القسم وتقييماتك. العناصر المستبعدة لا تظهر هنا.",null);
-        int shown=Math.min(5,rec.length());for(int i=0;i<shown;i++){JSONObject x=rec.optJSONObject(i);if(x!=null)effectCard(x,n,s,true);}
-        card("🎨 المؤثرات","مؤثرات بصرية/حركية/صوتية مناسبة لهذا القسم",null);
-        JSONArray all=EffectLibrary.catalog(s);for(int i=0;i<all.length();i++){JSONObject x=all.optJSONObject(i);if(x!=null&&"effect".equals(x.optString("type")))effectCard(x,n,s,false);}
-        card("↔️ الانتقالات","انتقالات مخصصة لطبيعة القسم",null);
-        for(int i=0;i<all.length();i++){JSONObject x=all.optJSONObject(i);if(x!=null&&"transition".equals(x.optString("type")))effectCard(x,n,s,false);}
-        back("المشروع",()->workspace(n,s));
-    }
-
-    void effectCard(JSONObject x,String n,String s,boolean recommended){
-        String state=EffectLibrary.state(prefs,s,x.optString("id"));String mark="liked".equals(state)?"♥ ":"rejected".equals(state)?"✕ ":"";
-        String sub=(recommended?"مقترح • ":"")+kind(x.optString("family"))+" • شدة "+intensity(x.optString("intensity"))+"\n"+x.optString("description");
-        card(mark+x.optString("name"),sub,()->effectDetail(x,n,s));
-    }
-
-    void effectDetail(JSONObject x,String n,String s){
-        base(x.optString("name"),"مكتبة "+s);String state=EffectLibrary.state(prefs,s,x.optString("id"));
-        card("التفاصيل",x.optString("description")+"\nالنوع: "+("transition".equals(x.optString("type"))?"انتقال":"مؤثر")+"\nالعائلة: "+kind(x.optString("family"))+"\nالشدة: "+intensity(x.optString("intensity"))+"\nحالتك: "+stateAr(state),null);
-        Button like=btn("♥ مناسب لهذا القسم");content.addView(like,new LinearLayout.LayoutParams(-1,dp(52)));like.setOnClickListener(v->{EffectLibrary.setState(prefs,s,x.optString("id"),"liked");effectDetail(x,n,s);});
-        Button neutral=btn("○ بدون تقييم");LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(-1,dp(52));np.setMargins(0,dp(8),0,0);content.addView(neutral,np);neutral.setOnClickListener(v->{EffectLibrary.setState(prefs,s,x.optString("id"),"neutral");effectDetail(x,n,s);});
-        Button reject=btn("✕ غير مناسب");LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(52));rp.setMargins(0,dp(8),0,0);content.addView(reject,rp);reject.setOnClickListener(v->{EffectLibrary.setState(prefs,s,x.optString("id"),"rejected");effectDetail(x,n,s);});
-        card("التعلّم من اختيارك","التقييم يُحفظ على مستوى قسم «"+s+"» ويؤثر في ترتيب الاقتراحات القادمة لنفس القسم فقط.",null);back("المكتبة",()->effectsLibrary(n,s));
-    }
-
-    void chat(String n,String s){
-        project=n;style=s;base("شات المشروع",n+" • "+s);card("اتصال حقيقي","الرسائل تُرسل عبر Cloudflare إلى OpenAI. لا يتم تخزين مفتاح API داخل التطبيق.",null);
-        JSONArray history=ChatStore.load(prefs,n,s);int start=Math.max(0,history.length()-20);for(int i=start;i<history.length();i++){JSONObject m=history.optJSONObject(i);if(m!=null)card("user".equals(m.optString("role"))?"أنت":"المساعد",m.optString("text"),null);}
-        EditText input=new EditText(this);input.setHint("اكتب طلبك للمونتاج...");input.setTextColor(Color.WHITE);input.setHintTextColor(MUTED);input.setTextDirection(View.TEXT_DIRECTION_RTL);input.setGravity(Gravity.TOP|Gravity.END);input.setMinLines(3);input.setMaxLines(6);input.setPadding(dp(14),dp(12),dp(14),dp(12));input.setBackground(bg(CARD,18));content.addView(input,new LinearLayout.LayoutParams(-1,dp(110)));
-        Button send=btn("إرسال");LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(54));sp.setMargins(0,dp(10),0,0);content.addView(send,sp);send.setOnClickListener(v->{String message=input.getText().toString().trim();if(message.isEmpty())return;input.setText("");send.setEnabled(false);ChatStore.append(prefs,n,s,"user",message);sendChat(message,n,s);});back("المشروع",()->workspace(n,s));
-    }
-
-    void sendChat(String message,String n,String s){
-        Toast.makeText(this,"جارٍ إرسال الرسالة…",Toast.LENGTH_SHORT).show();new Thread(()->{try{JSONObject context=new JSONObject();context.put("shortTerm",ShortTermMemory.load(prefs,n,s));JSONObject lt=LongTermMemory.load(prefs,s),summary=lt.optJSONObject("summary");context.put("longTermSummary",summary==null?new JSONObject():summary);context.put("recentChat",ChatStore.recent(prefs,n,s,12));context.put("effectsSummary",EffectLibrary.summary(prefs,s));context.put("effectsPreferences",EffectLibrary.preferences(prefs,s));String reply=ChatClient.ask(message,n,s,context,activeVideoContext(n,s));ChatStore.append(prefs,n,s,"assistant",reply);runOnUiThread(()->chat(n,s));}catch(Exception e){String error=e.getMessage()==null?"فشل الاتصال بالمحرك":e.getMessage();runOnUiThread(()->{Toast.makeText(this,error,Toast.LENGTH_LONG).show();chat(n,s);});}}).start();
-    }
-
-    JSONObject activeVideoContext(String n,String s){
-        JSONObject out=new JSONObject();try{JSONObject stm=ShortTermMemory.load(prefs,n,s);String uri=stm.optString("activeVideoUri",""),name=stm.optString("activeVideoName","");if(!name.isEmpty())out.put("name",name);if(!uri.isEmpty()){JSONArray videos=list(n,s);for(int i=0;i<videos.length();i++){JSONObject v=videos.optJSONObject(i);if(v!=null&&uri.equals(v.optString("uri"))){JSONObject inspection=v.optJSONObject("inspection");if(inspection!=null)out.put("inspection",inspection);break;}}}}catch(Exception ignored){}return out;
-    }
-
-    interface Obj{void go(JSONObject o);}void forObj(JSONArray a,Obj f){for(int i=a.length()-1;i>=0;i--){JSONObject o=a.optJSONObject(i);if(o!=null)f.go(o);}}
-    String ar(String s){if("fast".equals(s))return"سريع";if("medium".equals(s))return"متوسط";if("slow".equals(s))return"هادئ";if("dark".equals(s))return"داكن";if("bright".equals(s))return"مضيء";if("balanced".equals(s))return"متوازن";return s;}
-    String kind(String s){if("visual".equals(s))return"بصري";if("motion".equals(s))return"حركة";if("audio".equals(s))return"صوت";if("transition".equals(s))return"انتقال";return s;}
-    String intensity(String s){if("low".equals(s))return"خفيفة";if("medium".equals(s))return"متوسطة";if("high".equals(s))return"قوية";return s;}
-    String stateAr(String s){if("liked".equals(s))return"مناسب ♥";if("rejected".equals(s))return"غير مناسب ✕";return"بدون تقييم";}
-    String round(double x){return String.format(Locale.US,"%.1f",x);}
-
+    @Override public void onCreate(Bundle b){super.onCreate(b);prefs=getSharedPreferences("studio",MODE_PRIVATE);Window w=getWindow();w.setStatusBarColor(BG);w.setNavigationBarColor(BG);w.getDecorView().setSystemUiVisibility(0);home();}
+    int dp(float x){return Math.round(x*getResources().getDisplayMetrics().density);} GradientDrawable bg(int c,float r){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(r));return d;}
+    TextView tx(String s,float z,int c,boolean bold){TextView v=new TextView(this);v.setText(s);v.setTextSize(z);v.setTextColor(c);v.setTypeface(Typeface.create("sans",bold?Typeface.BOLD:Typeface.NORMAL));v.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);v.setLineSpacing(0,1.12f);return v;}
+    Button btn(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextSize(16);b.setTextColor(Color.rgb(5,20,13));b.setTypeface(null,Typeface.BOLD);b.setBackground(bg(GREEN,18));return b;}
+    void base(String title,String subtitle){ScrollView sc=new ScrollView(this);sc.setFillViewport(true);sc.setBackgroundColor(BG);root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);root.setPadding(dp(20),dp(18),dp(20),dp(24));sc.addView(root,new ScrollView.LayoutParams(-1,-2));setContentView(sc);TextView brand=tx("STUDIO  /  AI",12,GREEN,true);brand.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);brand.setTextDirection(View.TEXT_DIRECTION_LTR);brand.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);root.addView(brand,new LinearLayout.LayoutParams(-1,dp(28)));TextView h=tx(title,29,Color.WHITE,true);h.setIncludeFontPadding(false);root.addView(h);TextView sub=tx(subtitle,14,MUTED,false);sub.setPadding(0,dp(7),0,dp(20));root.addView(sub);content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);root.addView(content);}
+    void card(String title,String subtitle,Runnable action){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(18),dp(13),dp(18),dp(13));c.setBackground(bg(CARD,18));c.addView(tx(title,17,Color.WHITE,true));if(subtitle!=null&&!subtitle.isEmpty())c.addView(tx(subtitle,13,MUTED,false));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));content.addView(c,p);if(action!=null)c.setOnClickListener(v->action.run());}
+    void back(String label,Runnable action){TextView b=tx("‹  "+label,15,GREEN,true);b.setPadding(0,dp(20),0,dp(18));root.addView(b);b.setOnClickListener(v->action.run());backAction=action;}
+    void home(){project="";style="";backAction=null;base("الاستوديو","مساحة عملك الخاصة للمونتاج والتعلّم من الأساليب.");Button b=btn("＋  إنشاء مشروع");content.addView(b,new LinearLayout.LayoutParams(-1,dp(58)));b.setOnClickListener(v->newProject());for(String p:prefs.getStringSet("projects",new LinkedHashSet<>())){String[] x=p.split("\\|",2);String n=x[0],s=x.length>1?x[1]:"عام";card(n,s,()->workspace(n,s));}}
+    void newProject(){base("مشروع جديد","اكتب اسم المشروع ثم اختر قسمه.");EditText e=new EditText(this);e.setHint("اسم المشروع");e.setTextColor(Color.WHITE);e.setHintTextColor(MUTED);e.setPadding(dp(14),0,dp(14),0);e.setBackground(bg(CARD,18));content.addView(e,new LinearLayout.LayoutParams(-1,dp(58)));Button b=btn("التالي");LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(56));p.setMargins(0,dp(10),0,0);content.addView(b,p);b.setOnClickListener(v->{String n=e.getText().toString().trim();if(n.isEmpty()){e.setError("اكتب اسم المشروع");return;}choose(n);});back("الرئيسية",this::home);}
+    void choose(String n){base("اختر أسلوب المشروع",n);for(String s:styles)card(s,"",()->saveProject(n,s));back("الرئيسية",this::home);} void saveProject(String n,String s){Set<String> p=new LinkedHashSet<>(prefs.getStringSet("projects",new LinkedHashSet<>()));p.add(n+"|"+s);prefs.edit().putStringSet("projects",p).apply();workspace(n,s);}
+    void workspace(String n,String s){project=n;style=s;base(n,s+" • مساحة مشروع مستقلة");card("🎬 الفيديوهات","استيراد وتشغيل الفيديو",()->videos(n,s));card("🧪 التحليل البصري والزمني","نتائج التحليل • تفاصيل • إعادة تحليل عند الطلب",()->analysis(n,s));card("🎛 بصمة أسلوب المونتاج","قياسات أسلوب كل فيديو",()->styleProfiles(n,s));JSONObject sm=ShortTermMemory.load(prefs,n,s);card("🧠 الذاكرة قصيرة المدى",sm.optString("activeVideoName","لا يوجد سياق نشط"),()->memory(n,s));JSONObject lm=LongTermMemory.load(prefs,s),ls=lm.optJSONObject("summary");int learned=ls==null?0:ls.optInt("sampleCount");card("🧠 ذاكرة القسم طويلة المدى",learned+" فيديو متعلَّم",()->longTerm(n,s));card("📊 المقارنة والتعلّم",learned<2?"تحتاج مرجعين معتمدين":"مقارنة بصمات المراجع",()->comparison(n,s));card("🛠 خطة المونتاج المتعلَّمة",learned==0?"تحتاج مرجعًا معتمدًا":"اقتراحات مبنية على مراجع القسم",()->suggestions(n,s));card("🗂 الأرشيف","مواد المشروع",()->videos(n,s));int cc=ChatStore.load(prefs,n,s).length();card("💬 شات المشروع",cc==0?"متصل بمحرك حقيقي • ابدأ المحادثة":cc+" رسالة محفوظة محليًا",()->chat(n,s));JSONObject fx=EffectLibrary.summary(prefs,s);card("✨ المؤثرات والانتقالات",fx.optInt("liked")+" مفضلة • "+fx.optInt("rejected")+" مستبعدة • مكتبة "+s,()->effectsLibrary(n,s));back("الرئيسية",this::home);}
+    String videoKey(String n,String s){return "videos_"+Integer.toHexString((n+"|"+s).hashCode());} JSONArray list(String n,String s){try{return new JSONArray(prefs.getString(videoKey(n,s),"[]"));}catch(Exception e){return new JSONArray();}} void save(String n,String s,JSONArray a){prefs.edit().putString(videoKey(n,s),a.toString()).apply();}
+    void videos(String n,String s){project=n;style=s;base("فيديوهات المشروع",n);Button b=btn("＋ استيراد فيديو");content.addView(b,new LinearLayout.LayoutParams(-1,dp(56)));b.setOnClickListener(v->pick());JSONArray a=list(n,s);for(int i=a.length()-1;i>=0;i--){JSONObject o=a.optJSONObject(i);if(o!=null)card("🎞 "+o.optString("name","فيديو"),o.optJSONObject("inspection")==null?"لم يحلل":"تحليل v"+o.optJSONObject("inspection").optInt("analysisVersion"),()->player(o,n,s));}back("المشروع",()->workspace(n,s));}
+    void analysis(String n,String s){base("التحليل البصري والزمني",n);forObj(list(n,s),o->{JSONObject x=o.optJSONObject("inspection");card(o.optString("name"),x==null?"لم يحلل — اضغط لبدء التحليل":"الحركة "+round(x.optDouble("averageMotion"))+" • التغير "+round(x.optDouble("averageChange"))+" • اضغط للتفاصيل",x==null?()->reanalyze(o,n,s):()->analysisDetail(o,n,s));});back("المشروع",()->workspace(n,s));}
+    void analysisDetail(JSONObject o,String n,String s){JSONObject x=o.optJSONObject("inspection");base("تفاصيل التحليل",o.optString("name","فيديو"));if(x==null){card("لا توجد نتيجة","هذا الفيديو لم يُحلل بعد.",null);}else{JSONArray cuts=x.optJSONArray("cutCandidates"),segments=x.optJSONArray("segments");card("النتيجة المحفوظة","المدة: "+time(x.optLong("durationMs"))+"\nالدقة: "+x.optInt("width")+" × "+x.optInt("height")+"\nالحركة: "+round(x.optDouble("averageMotion"))+"\nالتغير البصري: "+round(x.optDouble("averageChange"))+"\nمرشحات القص: "+(cuts==null?0:cuts.length())+"\nالمشاهد: "+(segments==null?0:segments.length())+"\nنسخة التحليل: v"+x.optInt("analysisVersion"),null);card("مهم","فتح هذه الصفحة لا يعيد التحليل. استخدم الزر التالي فقط إذا أردت حساب النتائج من جديد.",null);}Button r=btn("↻ إعادة التحليل");content.addView(r,new LinearLayout.LayoutParams(-1,dp(54)));r.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("إعادة التحليل؟").setMessage("سيتم حساب التحليل من جديد لهذا الفيديو.").setNegativeButton("إلغاء",null).setPositiveButton("إعادة",(d,w)->reanalyze(o,n,s)).show());back("نتائج التحليل",()->analysis(n,s));}
+    void styleProfiles(String n,String s){base("بصمات المونتاج",n);forObj(list(n,s),o->{JSONObject in=o.optJSONObject("inspection"),x=in==null?null:in.optJSONObject("editingStyle");card(o.optString("name"),x==null?"لا توجد بصمة":"الإيقاع "+ar(x.optString("pace"))+" • القصات/دقيقة "+round(x.optDouble("cutsPerMinute")),null);});back("المشروع",()->workspace(n,s));}
+    void memory(String n,String s){base("الذاكرة قصيرة المدى",n);JSONObject m=ShortTermMemory.load(prefs,n,s);card("السياق الحالي",m.optString("activeVideoName","لا يوجد فيديو نشط"),null);EditText e=new EditText(this);e.setHint("ملاحظة مؤقتة للمشروع");e.setTextColor(Color.WHITE);e.setHintTextColor(MUTED);e.setPadding(dp(14),dp(10),dp(14),dp(10));e.setBackground(bg(CARD,18));content.addView(e,new LinearLayout.LayoutParams(-1,dp(70)));Button b=btn("حفظ الملاحظة");content.addView(b,new LinearLayout.LayoutParams(-1,dp(52)));b.setOnClickListener(v->{String t=e.getText().toString().trim();if(!t.isEmpty()){ShortTermMemory.addNote(prefs,n,s,t);memory(n,s);}});JSONArray notes=m.optJSONArray("notes");if(notes!=null)for(int i=notes.length()-1;i>=0;i--){JSONObject q=notes.optJSONObject(i);if(q!=null)card("ملاحظة",q.optString("text"),null);}back("المشروع",()->workspace(n,s));}
+    void longTerm(String n,String s){base("ذاكرة القسم طويلة المدى",s);JSONObject x=LongTermMemory.load(prefs,s).optJSONObject("summary");if(x==null)card("لا توجد مراجع معتمدة","اعتمد فيديو من قسم مراجع تعلم الأسلوب.",null);else card("النمط المتعلَّم","العينات: "+x.optInt("sampleCount")+"\nالإيقاع: "+ar(x.optString("dominantPace"))+"\nالقصات/دقيقة: "+round(x.optDouble("avgCutsPerMinute"))+"\nمتوسط اللقطة: "+round(x.optDouble("avgShotSeconds"))+" ث\nالحركة: "+round(x.optDouble("avgMotion")),null);back("المشروع",()->workspace(n,s));}
+    void comparison(String n,String s){base("المقارنة والتعلّم",s);try{JSONObject r=StyleComparisonEngine.compare(LongTermMemory.load(prefs,s));if(r.optInt("sampleCount")<2)card("غير جاهزة","تحتاج مرجعين معتمدين على الأقل",null);else{card("تماسك القسم","متوسط التشابه "+round(r.optDouble("averageSimilarity"))+"%",null);JSONArray a=r.optJSONArray("videos");for(int i=0;a!=null&&i<a.length();i++){JSONObject v=a.optJSONObject(i);if(v!=null)card(v.optString("video"),"التشابه "+round(v.optDouble("similarity"))+"%",null);}}}catch(Exception e){card("خطأ","تعذر بناء المقارنة",null);}back("المشروع",()->workspace(n,s));}
+    void suggestions(String n,String s){base("خطة المونتاج المتعلَّمة",n+" • "+s);JSONArray a=list(n,s);JSONObject mem=LongTermMemory.load(prefs,s);boolean any=false;for(int i=a.length()-1;i>=0;i--){JSONObject o=a.optJSONObject(i),in=o==null?null:o.optJSONObject("inspection");if(in==null||in.optJSONObject("editingStyle")==null)continue;any=true;try{JSONObject r=EditingSuggestionEngine.build(in,mem);card("🎯 "+o.optString("name","فيديو"),r.optBoolean("ready")?"التشابه مع أسلوب القسم: "+round(r.optDouble("similarityToLearnedStyle"))+"%":"الخطة غير جاهزة",()->suggestionDetail(o,n,s));}catch(Exception ignored){}}if(!any)card("لا توجد فيديوهات جاهزة","حلل فيديو أولًا",null);back("المشروع",()->workspace(n,s));}
+    void suggestionDetail(JSONObject o,String n,String s){base("خطة مونتاج",o.optString("name"));try{JSONObject r=EditingSuggestionEngine.build(o.optJSONObject("inspection"),LongTermMemory.load(prefs,s));if(!r.optBoolean("ready"))card("غير جاهزة",r.optString("message"),null);else{card("مدى القرب من النمط","التشابه: "+round(r.optDouble("similarityToLearnedStyle"))+"%\nهدف القصات/دقيقة: "+round(r.optDouble("targetCutsPerMinute"))+"\nهدف متوسط اللقطة: "+round(r.optDouble("targetAverageShotSeconds"))+" ث\nهدف الحركة: "+round(r.optDouble("targetMotion")),null);JSONArray ac=r.optJSONArray("actions");for(int i=0;ac!=null&&i<ac.length();i++){JSONObject q=ac.optJSONObject(i);if(q!=null)card((i+1)+". "+q.optString("metric"),q.optString("action"),null);}}}catch(Exception e){card("خطأ","تعذر إنشاء الخطة",null);}back("الخطط",()->suggestions(n,s));}
+    void effectsLibrary(String n,String s){project=n;style=s;base("المؤثرات والانتقالات",s+" • مكتبة مستقلة لهذا القسم");JSONObject learned=LongTermMemory.load(prefs,s).optJSONObject("summary"),sum=EffectLibrary.summary(prefs,s);card("تفضيلات القسم","مفضلة: "+sum.optInt("liked")+" • مستبعدة: "+sum.optInt("rejected")+" • بدون تقييم: "+sum.optInt("neutral"),null);card("حالة التنفيذ","المكتبة تحفظ التفضيلات وتُرتب التوصيات. المؤثرات نفسها لن تُدّعى مطبقة حتى تدخل محرك الرندر فعليًا.",null);JSONArray rec=EffectLibrary.recommended(prefs,s,learned);card("⭐ المقترحة أولًا","حسب بصمة القسم وتقييماتك",null);for(int i=0;i<Math.min(5,rec.length());i++){JSONObject x=rec.optJSONObject(i);if(x!=null)effectCard(x,n,s,true);}JSONArray all=EffectLibrary.catalog(s);card("🎨 المؤثرات","",null);for(int i=0;i<all.length();i++){JSONObject x=all.optJSONObject(i);if(x!=null&&"effect".equals(x.optString("type")))effectCard(x,n,s,false);}card("↔️ الانتقالات","",null);for(int i=0;i<all.length();i++){JSONObject x=all.optJSONObject(i);if(x!=null&&"transition".equals(x.optString("type")))effectCard(x,n,s,false);}back("المشروع",()->workspace(n,s));}
+    void effectCard(JSONObject x,String n,String s,boolean recommended){String state=EffectLibrary.state(prefs,s,x.optString("id"));String mark="liked".equals(state)?"♥ ":"rejected".equals(state)?"✕ ":"";card(mark+x.optString("name"),(recommended?"مقترح • ":"")+kind(x.optString("family"))+" • شدة "+intensity(x.optString("intensity"))+"\n"+x.optString("description"),()->effectDetail(x,n,s));}
+    void effectDetail(JSONObject x,String n,String s){base(x.optString("name"),"مكتبة "+s);String state=EffectLibrary.state(prefs,s,x.optString("id"));card("التفاصيل",x.optString("description")+"\nالنوع: "+("transition".equals(x.optString("type"))?"انتقال":"مؤثر")+"\nحالتك: "+stateAr(state),null);Button like=btn("♥ مناسب لهذا القسم");content.addView(like,new LinearLayout.LayoutParams(-1,dp(52)));like.setOnClickListener(v->{EffectLibrary.setState(prefs,s,x.optString("id"),"liked");effectDetail(x,n,s);});Button reject=btn("✕ غير مناسب");content.addView(reject,new LinearLayout.LayoutParams(-1,dp(52)));reject.setOnClickListener(v->{EffectLibrary.setState(prefs,s,x.optString("id"),"rejected");effectDetail(x,n,s);});back("المكتبة",()->effectsLibrary(n,s));}
+    void chat(String n,String s){project=n;style=s;base("شات المشروع",n+" • "+s);card("اتصال حقيقي","الرسائل تُرسل عبر Cloudflare إلى OpenAI. لا يتم تخزين مفتاح API داخل التطبيق.",null);JSONArray h=ChatStore.load(prefs,n,s);for(int i=Math.max(0,h.length()-20);i<h.length();i++){JSONObject m=h.optJSONObject(i);if(m!=null)card("user".equals(m.optString("role"))?"أنت":"المساعد",m.optString("text"),null);}EditText input=new EditText(this);input.setHint("اكتب طلبك للمونتاج...");input.setTextColor(Color.WHITE);input.setHintTextColor(MUTED);input.setGravity(Gravity.TOP|Gravity.END);input.setPadding(dp(14),dp(12),dp(14),dp(12));input.setBackground(bg(CARD,18));content.addView(input,new LinearLayout.LayoutParams(-1,dp(110)));Button send=btn("إرسال");content.addView(send,new LinearLayout.LayoutParams(-1,dp(54)));send.setOnClickListener(v->{String m=input.getText().toString().trim();if(m.isEmpty())return;ChatStore.append(prefs,n,s,"user",m);sendChat(m,n,s);});back("المشروع",()->workspace(n,s));}
+    void sendChat(String message,String n,String s){Toast.makeText(this,"جارٍ إرسال الرسالة…",Toast.LENGTH_SHORT).show();new Thread(()->{try{JSONObject c=new JSONObject();c.put("shortTerm",ShortTermMemory.load(prefs,n,s));JSONObject lt=LongTermMemory.load(prefs,s),summary=lt.optJSONObject("summary");c.put("longTermSummary",summary==null?new JSONObject():summary);c.put("recentChat",ChatStore.recent(prefs,n,s,12));c.put("effectsSummary",EffectLibrary.summary(prefs,s));c.put("effectsPreferences",EffectLibrary.preferences(prefs,s));String reply=ChatClient.ask(message,n,s,c,activeVideoContext(n,s));ChatStore.append(prefs,n,s,"assistant",reply);runOnUiThread(()->chat(n,s));}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"فشل الاتصال بالمحرك",Toast.LENGTH_LONG).show());}}).start();}
+    JSONObject activeVideoContext(String n,String s){JSONObject out=new JSONObject();try{JSONObject stm=ShortTermMemory.load(prefs,n,s);String uri=stm.optString("activeVideoUri","");if(!uri.isEmpty()){JSONArray a=list(n,s);for(int i=0;i<a.length();i++){JSONObject v=a.optJSONObject(i);if(v!=null&&uri.equals(v.optString("uri"))){out.put("name",v.optString("name"));if(v.optJSONObject("inspection")!=null)out.put("inspection",v.optJSONObject("inspection"));break;}}}}catch(Exception ignored){}return out;}
+    interface Obj{void go(JSONObject o);} void forObj(JSONArray a,Obj f){for(int i=a.length()-1;i>=0;i--){JSONObject o=a.optJSONObject(i);if(o!=null)f.go(o);}} String ar(String s){if("fast".equals(s))return"سريع";if("medium".equals(s))return"متوسط";if("slow".equals(s))return"هادئ";return s;} String kind(String s){if("visual".equals(s))return"بصري";if("motion".equals(s))return"حركة";if("audio".equals(s))return"صوت";return s;} String intensity(String s){if("low".equals(s))return"خفيفة";if("medium".equals(s))return"متوسطة";if("high".equals(s))return"قوية";return s;} String stateAr(String s){if("liked".equals(s))return"مناسب ♥";if("rejected".equals(s))return"غير مناسب ✕";return"بدون تقييم";} String round(double x){return String.format(Locale.US,"%.1f",x);} String time(long ms){long sec=Math.max(0,ms)/1000;return String.format(Locale.US,"%d:%02d",sec/60,sec%60);}
     void pick(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("video/*");i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,PICK_VIDEO);}
-
-    @Override protected void onActivityResult(int rc,int res,Intent d){
-        super.onActivityResult(rc,res,d);if(rc!=PICK_VIDEO||res!=RESULT_OK||d==null||d.getData()==null)return;Uri u=d.getData();try{getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
-        JSONArray a=list(project,style);String uri=u.toString();JSONObject existing=null;for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&uri.equals(x.optString("uri"))){existing=x;break;}}
-        if(existing!=null){reanalyze(existing,project,style);return;}
-        JSONObject o=new JSONObject();try{o.put("name",displayName(u));o.put("uri",uri);a.put(o);save(project,style,a);}catch(Exception e){return;}analyzeAsync(u,o,project,style);
-    }
-
-    void analyzeAsync(Uri u,JSONObject target,String n,String s){
-        Toast.makeText(this,"جارٍ التحليل…",Toast.LENGTH_SHORT).show();new Thread(()->{try{JSONObject in=VideoInspector.inspect(this,u);target.put("inspection",in);JSONArray a=list(n,s);String uri=target.optString("uri");JSONObject saved=target;for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&uri.equals(x.optString("uri"))){x.put("inspection",in);saved=x;break;}}save(n,s,a);ShortTermMemory.rememberVideo(prefs,n,s,saved);runOnUiThread(()->{Toast.makeText(this,"اكتمل التحليل وتحديث التعلّم",Toast.LENGTH_SHORT).show();videos(n,s);});}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"تعذر التحليل",Toast.LENGTH_LONG).show());}}).start();
-    }
-
-    void reanalyze(JSONObject o,String n,String s){String u=o.optString("uri");if(!u.isEmpty())analyzeAsync(Uri.parse(u),o,n,s);}
-    String displayName(Uri u){Cursor c=null;try{c=getContentResolver().query(u,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null);if(c!=null&&c.moveToFirst())return c.getString(0);}catch(Exception ignored){}finally{if(c!=null)c.close();}return"فيديو";}
-
+    @Override protected void onActivityResult(int rc,int res,Intent d){super.onActivityResult(rc,res,d);if(rc!=PICK_VIDEO||res!=RESULT_OK||d==null||d.getData()==null)return;Uri u=d.getData();try{getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}JSONArray a=list(project,style);String uri=u.toString();JSONObject existing=null;for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&uri.equals(x.optString("uri"))){existing=x;break;}}if(existing!=null){player(existing,project,style);Toast.makeText(this,"الفيديو موجود مسبقًا — لم نعد التحليل تلقائيًا",Toast.LENGTH_SHORT).show();return;}JSONObject o=new JSONObject();try{o.put("name",displayName(u));o.put("uri",uri);a.put(o);save(project,style,a);}catch(Exception e){return;}analyzeAsync(u,o,project,style);}
+    void analyzeAsync(Uri u,JSONObject target,String n,String s){base("تحليل الفيديو",target.optString("name","فيديو"));ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);content.addView(bar,new LinearLayout.LayoutParams(-1,dp(12)));TextView status=tx("تهيئة التحليل… 0%",14,MUTED,true);status.setPadding(0,dp(12),0,dp(8));content.addView(status);back("الفيديوهات",()->videos(n,s));new Thread(()->{try{JSONObject in=VideoInspector.inspect(this,u,(percent,stage)->runOnUiThread(()->{bar.setProgress(percent);status.setText(stage+" • "+percent+"%");}));target.put("inspection",in);JSONArray a=list(n,s);String uri=target.optString("uri");JSONObject saved=target;for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&uri.equals(x.optString("uri"))){x.put("inspection",in);saved=x;break;}}save(n,s,a);ShortTermMemory.rememberVideo(prefs,n,s,saved);runOnUiThread(()->{bar.setProgress(100);status.setText("اكتمل التحليل • 100%");Toast.makeText(this,"اكتمل التحليل — لم يُضف كمرجع تعلم",Toast.LENGTH_SHORT).show();analysisDetail(target,n,s);});}catch(Exception e){runOnUiThread(()->status.setText("تعذر التحليل"));}}).start();}
+    void reanalyze(JSONObject o,String n,String s){String u=o.optString("uri");if(!u.isEmpty())analyzeAsync(Uri.parse(u),o,n,s);} String displayName(Uri u){Cursor c=null;try{c=getContentResolver().query(u,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null);if(c!=null&&c.moveToFirst())return c.getString(0);}catch(Exception ignored){}finally{if(c!=null)c.close();}return"فيديو";}
     void player(JSONObject o,String n,String s){String file=o.optString("name"),uri=o.optString("uri");ShortTermMemory.rememberOpenedVideo(prefs,n,s,file,uri);base("مشغل الفيديو",file);VideoView v=new VideoView(this);content.addView(v,new LinearLayout.LayoutParams(-1,dp(240)));MediaController m=new MediaController(this);m.setAnchorView(v);v.setMediaController(m);v.setVideoURI(Uri.parse(uri));v.setOnPreparedListener(x->v.start());back("الفيديوهات",()->videos(n,s));}
-
     @Override public void onBackPressed(){if(backAction!=null)backAction.run();else home();}
 }
