@@ -10,8 +10,8 @@ android {
         applicationId = "com.studio.ai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.13.0"
+        versionCode = 14
+        versionName = "0.14.0"
     }
 
     compileOptions {
@@ -20,11 +20,13 @@ android {
     }
 
     buildTypes {
-        getByName("debug") {
-            isMinifyEnabled = false
-        }
-        getByName("release") {
-            isMinifyEnabled = false
-        }
+        getByName("debug") { isMinifyEnabled = false }
+        getByName("release") { isMinifyEnabled = false }
     }
+}
+
+dependencies {
+    implementation("androidx.media3:media3-transformer:1.11.0")
+    implementation("androidx.media3:media3-effect:1.11.0")
+    implementation("androidx.media3:media3-common:1.11.0")
 }
